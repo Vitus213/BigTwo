@@ -1,8 +1,9 @@
-package com.example.bigtwo.model
+package bigtwo.app.model
 
 data class Card(val rank: Int, val suit: Suit) : Comparable<Card> {
 
     enum class Suit {
+        //四种花色 ：方块（♦）、梅花（♣）、红心（♥）、黑桃（♠）
         DIAMONDS, CLUBS, HEARTS, SPADES
     }
 
