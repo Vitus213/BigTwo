@@ -8,9 +8,8 @@ class HandType private constructor(
     enum class Type {
         SINGLE, PAIR, TRIPLE, STRAIGHT, FLUSH, FULL_HOUSE, FOUR_OF_A_KIND, STRAIGHT_FLUSH
     }
-
     companion object {
-        fun from(cards: List<Card>): HandType {
+        fun from(cards: List<Card>): HandType { //识别牌型
             require(cards.isNotEmpty()) { "牌组不能为空" }
             return when (cards.size) {
                 1 -> HandType(Type.SINGLE, cards)
@@ -51,7 +50,7 @@ class HandType private constructor(
         }
     }
 
-    override fun compareTo(other: HandType): Int {
+    override fun compareTo(other: HandType): Int {//对同种牌型的比较
         return if (type != other.type) {
             type.compareTo(other.type)
         } else {
