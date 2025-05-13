@@ -2,6 +2,7 @@ package bigtwo.app
 
 import bigtwo.app.model.Card
 import bigtwo.app.model.Deck
+import bigtwo.app.ai.AutoPlayer
 import bigtwo.app.player.Player
 import bigtwo.app.rules.RuleVariant
 import bigtwo.app.rules.Rules
@@ -15,6 +16,7 @@ class GameManager(
     private val rules = Rules(ruleVariant)
     private val players = playerNames.map { Player(it) }
     private val deck = Deck()
+    private val autoPlayer = AutoPlayer(rules)
     // 当前游戏状态
     private var currentPlayerIndex = 0
     private var previousHand: List<Card>? = null
@@ -79,15 +81,34 @@ class GameManager(
         if (previousHand != null) {
             println("上一手牌: $previousHand 由 ${lastPlayedBy?.name} 出出")
         }
-
         // 根据是否自动模拟来决定出牌逻辑
         if (autoPlay) {
-            autoPlayCards(currentPlayer)
+            val cardsToPlay = autoPlayer.autoPlayCards(currentPlayer, previousHand)
+            if (cardsToPlay.isEmpty()) {
+                playerPassStatus[currentPlayer] = true  // 标记玩家已过牌
+                consecutivePassCount++  // 增加连续过牌计数
+            } else {
+                currentPlayer.playCards(cardsToPlay)
+                previousHand = cardsToPlay
+                lastPlayedBy = currentPlayer
+                lastPlayerWhoPlayedIndex = players.indexOf(currentPlayer)  // 记录最后出牌的玩家索引
+                resetPassStatus()  // 重置所有玩家的过牌状态，包括连续过牌计数
+            }
         } else {
             // 交互式出牌（未实现）
             println("请选择要出的牌（暂未实现）")
             // 临时用自动出牌代替
-            autoPlayCards(currentPlayer)
+            val cardsToPlay = autoPlayer.autoPlayCards(currentPlayer, previousHand)
+            if (cardsToPlay.isEmpty()) {
+                playerPassStatus[currentPlayer] = true
+                consecutivePassCount++
+            } else {
+                currentPlayer.playCards(cardsToPlay)
+                previousHand = cardsToPlay
+                lastPlayedBy = currentPlayer
+                lastPlayerWhoPlayedIndex = players.indexOf(currentPlayer)
+                resetPassStatus()
+            }
         }
 
         // 检查是否有玩家胜利
@@ -101,46 +122,6 @@ class GameManager(
         // 移动到下一个玩家
         currentPlayerIndex = (currentPlayerIndex + 1) % players.size
     }
-
-    // 自动出牌逻辑
-    private fun autoPlayCards(player: Player) {
-        val playableCards = findPlayableCards(player.getCards())
-
-        if (playableCards.isEmpty()) {
-            println("${player.name} 选择过牌")
-            playerPassStatus[player] = true  // 标记玩家已过牌
-            consecutivePassCount++  // 增加连续过牌计数
-        } else {
-            player.playCards(playableCards)
-            println("${player.name} 出牌: $playableCards")
-
-            previousHand = playableCards
-            lastPlayedBy = player
-            lastPlayerWhoPlayedIndex = players.indexOf(player)  // 记录最后出牌的玩家索引
-            resetPassStatus()  // 重置所有玩家的过牌状态，包括连续过牌计数
-        }
-    }
-
-    // 找出可以出的牌
-    private fun findPlayableCards(cards: List<Card>): List<Card> {
-        // 简化实现：只选择单张牌
-        if (previousHand == null) {
-            // 首次出牌，选择最小的牌
-            return listOf(cards.first())
-        }
-
-        // 尝试找到能够大过上一手牌的单张
-        if (previousHand!!.size == 1) {
-            val validCards = cards.filter { card ->
-                rules.isValidPlay(listOf(card), previousHand)
-            }
-            return if (validCards.isNotEmpty()) listOf(validCards.first()) else emptyList()
-        }
-
-        // 其他牌型情况暂不实现
-        return emptyList()
-    }
-
     // 显示游戏结果
     private fun showResults() {
         val scores = if (ruleVariant == RuleVariant.SOUTHERN) {
