@@ -1,5 +1,7 @@
 package bigtwo.app.model
 
+import kotlin.random.Random
+
 class Deck {
 
     private val cards: MutableList<Card> = mutableListOf()
@@ -21,7 +23,14 @@ class Deck {
 
     // 洗牌
     fun shuffle() {
-        cards.shuffle() //对cards元素进行打乱
+        val seed = System.currentTimeMillis()
+        val random = Random(seed)
+        cards.shuffle(random)
+
+        // 可选：多次洗牌增加随机性
+        repeat(2) {
+            cards.shuffle(random)
+        }
     }
 
     // 发牌给 4 个玩家，每人 13 张
