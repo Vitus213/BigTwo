@@ -43,16 +43,26 @@ android {
     }
 }
 
-dependencies {
 
+dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
+
+    // ✅ 使用 JUnit 5，去掉 JUnit 4
+//    testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.0")
+//    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.0")
+//    testImplementation("org.junit.jupiter:junit-jupiter-params:5.10.0")
+
+    // 🚫 不推荐混用 JUnit 4，除非你有兼容需求
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     testImplementation(kotlin("test"))
+
 }
-tasks.withType<Test> {
-    useJUnitPlatform()
-}
+
+//// ✅ 启用 JUnit Platform
+//tasks.withType<Test>().configureEach {
+//    useJUnitPlatform()
+//}

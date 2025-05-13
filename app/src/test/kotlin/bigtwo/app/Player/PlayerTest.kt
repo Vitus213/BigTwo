@@ -3,19 +3,17 @@ package bigtwo.app.player
 import bigtwo.app.model.Card
 import bigtwo.app.model.Card.Suit
 import bigtwo.app.model.HandType
-import org.junit.Assert.*
-import org.junit.Before
-import org.junit.Test
+import org.junit.jupiter.api.*
+import org.junit.jupiter.api.Assertions.*
 
 class PlayerTest {
 
-    private lateinit var player: Player //创建一个玩家
+    private lateinit var player: Player
     private lateinit var testCards: List<Card>
 
-    @Before
+    @BeforeEach
     fun setUp() {
-        player = Player("测试玩家")
-        // 创建测试用的卡牌
+        player = Player("测试玩家")        // 创建测试用的卡牌
         testCards = listOf(
             Card(3, Suit.CLUB),
             Card(4, Suit.DIAMOND),
@@ -53,11 +51,14 @@ class PlayerTest {
         assertFalse(player.hasCard(testCards[0]))
     }
 
-    @Test(expected = IllegalArgumentException::class)
+    @Test
     fun testPlayCardsNotInHand() {
         player.receiveCards(testCards.subList(0, 2))
-        // 尝试打出一张不在手牌中的牌
-        player.playCards(listOf(testCards[2]))
+
+        val exception = assertThrows<IllegalArgumentException> {
+            player.playCards(listOf(testCards[2]))
+        }
+        assertEquals("选择的牌不在手牌中", exception.message) // 根据你的实现内容改错误信息
     }
 
     @Test
@@ -73,15 +74,15 @@ class PlayerTest {
 
     @Test
     fun testHasWon() {
-        assertTrue("初始状态应为赢（无牌）", player.hasWon())
+        assertTrue(player.hasWon(), "初始状态应为赢（无牌）")
 
         player.receiveCards(testCards)
-        assertFalse("有牌时不应为赢", player.hasWon())
+        assertFalse(player.hasWon(), "有牌时不应为赢")
 
         player.playCards(listOf(testCards[0]))
         player.playCards(listOf(testCards[1]))
         player.playCards(listOf(testCards[2]))
-        assertTrue("出完所有牌后应为赢", player.hasWon())
+        assertTrue(player.hasWon(), "出完所有牌后应为赢")
     }
 
     @Test
@@ -93,35 +94,32 @@ class PlayerTest {
         assertFalse(player.hasCard(testCards[1]))
     }
 
-    // 下面两个测试需要模拟HandType类
     @Test
     fun testPlayCardsWithValidPreviousHandType() {
-        // 注：此测试需要根据实际HandType实现调整
-        // 创建低牌和高牌
         val lowerCard = Card(3, Suit.CLUB)
         val higherCard = Card(5, Suit.CLUB)
 
-        // 假设HandType.from方法能正确创建手牌类型并支持比较
         val lowerHandType = HandType.from(listOf(lowerCard))
 
         player.receiveCards(listOf(higherCard))
-        player.playCards(listOf(higherCard), lowerHandType)
+        val result = player.playCards(listOf(higherCard), lowerHandType)
 
+        assertEquals(listOf(higherCard), result)
         assertEquals(0, player.cardsCount())
     }
 
-    @Test(expected = IllegalArgumentException::class)
+    @Test
     fun testPlayCardsWithInvalidPreviousHandType() {
-        // 注：此测试需要根据实际HandType实现调整
-        // 创建高牌和低牌
         val lowerCard = Card(3, Suit.CLUB)
         val higherCard = Card(5, Suit.CLUB)
 
-        // 假设HandType.from方法能正确创建手牌类型并支持比较
         val higherHandType = HandType.from(listOf(higherCard))
 
         player.receiveCards(listOf(lowerCard))
-        // 这应该会失败，因为低牌不能打高牌
-        player.playCards(listOf(lowerCard), higherHandType)
+
+        val exception = assertThrows<IllegalArgumentException> {
+            player.playCards(listOf(lowerCard), higherHandType)
+        }
+        assertEquals("出牌必须大于前一手牌", exception.message) // 根据你的实现内容改错误信息
     }
 }
