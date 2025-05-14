@@ -8,13 +8,22 @@ class HandType private constructor(
     enum class Type {
         SINGLE, PAIR, TRIPLE, STRAIGHT, FLUSH, FULL_HOUSE, FOUR_OF_A_KIND, STRAIGHT_FLUSH
     }
+
     companion object {
         fun from(cards: List<Card>): HandType { //识别牌型
             require(cards.isNotEmpty()) { "牌组不能为空" }
             return when (cards.size) {
                 1 -> HandType(Type.SINGLE, cards)
-                2 -> if (isPair(cards)) HandType(Type.PAIR, cards) else throw IllegalArgumentException("非法的对子")
-                3 -> if (isTriple(cards)) HandType(Type.TRIPLE, cards) else throw IllegalArgumentException("非法的三张")
+                2 -> if (isPair(cards)) HandType(
+                    Type.PAIR,
+                    cards
+                ) else throw IllegalArgumentException("非法的对子")
+
+                3 -> if (isTriple(cards)) HandType(
+                    Type.TRIPLE,
+                    cards
+                ) else throw IllegalArgumentException("非法的三张")
+
                 5 -> determineFiveCardType(cards)
                 else -> throw IllegalArgumentException("不支持的牌型")
             }
@@ -22,12 +31,14 @@ class HandType private constructor(
 
         private fun isPair(cards: List<Card>) = cards[0].rank == cards[1].rank  //对子
 
-        private fun isTriple(cards: List<Card>) = cards[0].rank == cards[1].rank && cards[1].rank == cards[2].rank  //三张
+        private fun isTriple(cards: List<Card>) =
+            cards[0].rank == cards[1].rank && cards[1].rank == cards[2].rank  //三张
 
         private fun determineFiveCardType(cards: List<Card>): HandType {
             val sortedCards = cards.sorted()
             val isFlush = sortedCards.all { it.suit == sortedCards[0].suit }    //同花
-            val isStraight = sortedCards.zipWithNext { a, b -> b.rank - a.rank == 1 }.all { it }    //顺子
+            val isStraight =
+                sortedCards.zipWithNext { a, b -> b.rank - a.rank == 1 }.all { it }    //顺子
 
             return when {
                 isFlush && isStraight -> HandType(Type.STRAIGHT_FLUSH, sortedCards)
@@ -59,11 +70,13 @@ class HandType private constructor(
                 Type.SINGLE, Type.PAIR, Type.TRIPLE, Type.STRAIGHT, Type.FLUSH, Type.STRAIGHT_FLUSH -> {
                     cards.max().compareTo(other.cards.max())
                 }
+
                 Type.FULL_HOUSE -> {
                     val thisTriple = cards.groupBy { it.rank }.maxBy { it.value.size }!!.key
                     val otherTriple = other.cards.groupBy { it.rank }.maxBy { it.value.size }!!.key
                     thisTriple.compareTo(otherTriple)
                 }
+
                 Type.FOUR_OF_A_KIND -> {
                     val thisFour = cards.groupBy { it.rank }.maxBy { it.value.size }!!.key
                     val otherFour = other.cards.groupBy { it.rank }.maxBy { it.value.size }!!.key

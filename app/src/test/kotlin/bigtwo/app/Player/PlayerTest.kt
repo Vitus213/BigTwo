@@ -3,7 +3,9 @@ package bigtwo.app.player
 import bigtwo.app.model.Card
 import bigtwo.app.model.Card.Suit
 import bigtwo.app.model.HandType
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 

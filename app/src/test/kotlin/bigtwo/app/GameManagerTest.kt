@@ -1,9 +1,9 @@
 import bigtwo.app.GameManager
 import bigtwo.app.PlayerInfo
-import bigtwo.app.model.Card
 import bigtwo.app.model.Card.Suit
 import bigtwo.app.rules.RuleVariant
-import org.junit.Assert.*
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -33,7 +33,9 @@ class GameManagerTest {
     fun testFirstPlayer() {
         gameManager.initGame()
         val firstPlayer = gameManager.showFirstPlayer()
-        assertTrue("首位玩家应持有方块3", firstPlayer.getCards().any { it.rank == 3 && it.suit == Suit.DIAMOND })
+        assertTrue(
+            "首位玩家应持有方块3",
+            firstPlayer.getCards().any { it.rank == 3 && it.suit == Suit.DIAMOND })
     }
 
     // @Test

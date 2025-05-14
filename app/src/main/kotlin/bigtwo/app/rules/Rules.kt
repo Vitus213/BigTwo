@@ -10,6 +10,7 @@ enum class RuleVariant {
     SOUTHERN, // 南方规则
     NORTHERN  // 北方规则
 }
+
 // 根据牌型获取类别
 private fun getCategory(type: HandType.Type): Int {
     return when (type) {
@@ -19,10 +20,11 @@ private fun getCategory(type: HandType.Type): Int {
         HandType.Type.STRAIGHT -> 5
         HandType.Type.FLUSH -> 5
         HandType.Type.FULL_HOUSE -> 5
-        HandType.Type.FOUR_OF_A_KIND-> 5
+        HandType.Type.FOUR_OF_A_KIND -> 5
         HandType.Type.STRAIGHT_FLUSH -> 5
     }
 }
+
 class Rules(val variant: RuleVariant = RuleVariant.SOUTHERN) {
 
     // 判断牌型大小顺序
@@ -85,7 +87,7 @@ class Rules(val variant: RuleVariant = RuleVariant.SOUTHERN) {
     }
 
     // 计算北方规则得分
-    fun calculateNorthernScore(players: List<Player>,): Map<Player, Int> {
+    fun calculateNorthernScore(players: List<Player>): Map<Player, Int> {
         val scores = mutableMapOf<Player, Int>()
         // 使用 associateWith 创建初始映射，参数 false 表示使用北方规则
         val cardPoints = players.associateWith { calculateCardPoints(it, false) }.toMutableMap()
@@ -99,7 +101,7 @@ class Rules(val variant: RuleVariant = RuleVariant.SOUTHERN) {
             }
 
             // 炒地皮惩罚 (全程未出牌)
-            if (player.cardsCount()==13) {
+            if (player.cardsCount() == 13) {
                 points *= 4
             }
 
@@ -142,10 +144,10 @@ class Rules(val variant: RuleVariant = RuleVariant.SOUTHERN) {
     fun isValidPlay(cards: List<Card>, previousHand: List<Card>?): Boolean {
         // 首次出牌或前面都过
         if (previousHand == null || previousHand.isEmpty()) {
-            try{
+            try {
                 HandType.from(cards)
                 return true
-            }catch (e: IllegalArgumentException) {
+            } catch (e: IllegalArgumentException) {
                 return false
             }
         }
@@ -153,10 +155,13 @@ class Rules(val variant: RuleVariant = RuleVariant.SOUTHERN) {
         // 检查牌型是否相同
         val currentType = HandType.from(cards)
         val previousType = HandType.from(previousHand)
-        if (cards.size != previousHand.size || getCategory(currentType.type) != getCategory(previousType.type)) {
+        if (cards.size != previousHand.size || getCategory(currentType.type) != getCategory(
+                previousType.type
+            )
+        ) {
             return false
         }
-     //   print("比较牌型结束，开始比较大小\n")
+        //   print("比较牌型结束，开始比较大小\n")
         // 比较大小
         return compareHands(cards, previousHand) > 0
     }

@@ -15,22 +15,22 @@ interface PlayerInterface {
     fun hasWon(): Boolean
 }
 
-class Player(override val name: String, override val isHuman: Boolean = true): PlayerInterface {
+class Player(override val name: String, override val isHuman: Boolean = true) : PlayerInterface {
 
     // 玩家手牌
     private val cards = mutableListOf<Card>()
 
     // 接收一组牌
-    override  fun receiveCards(newCards: List<Card>) {
+    override fun receiveCards(newCards: List<Card>) {
         cards.addAll(newCards)
         sortCards()
     }
 
     // 获取当前手牌
-    override  fun getCards(): List<Card> = cards.toList()
+    override fun getCards(): List<Card> = cards.toList()
 
     // 出牌
-    override fun playCards(selectedCards: List<Card>,previousHandType:HandType? ): List<Card> {
+    override fun playCards(selectedCards: List<Card>, previousHandType: HandType?): List<Card> {
         // 验证选中的牌确实在手牌中
         require(cards.containsAll(selectedCards)) { "选择的牌不在手牌中" }
         // 验证是否符合牌型
@@ -62,12 +62,12 @@ class Player(override val name: String, override val isHuman: Boolean = true): P
     override fun hasCard(card: Card): Boolean = cards.contains(card)
 
     // 剩余牌数
-   override fun cardsCount(): Int = cards.size
+    override fun cardsCount(): Int = cards.size
 
     // 判断是否已经出完所有牌
-    override  fun hasWon(): Boolean = cards.isEmpty()
+    override fun hasWon(): Boolean = cards.isEmpty()
     public fun removeallCards() {
-       cards.removeAll(cards.toList())
+        cards.removeAll(cards.toList())
     }
 
 }

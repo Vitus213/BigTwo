@@ -1,10 +1,14 @@
 package bigtwo.app.rules
 
 import bigtwo.app.model.Card
-import bigtwo.app.model.Card.Suit.*
-import bigtwo.app.model.HandType
+import bigtwo.app.model.Card.Suit.CLUB
+import bigtwo.app.model.Card.Suit.DIAMOND
+import bigtwo.app.model.Card.Suit.HEART
+import bigtwo.app.model.Card.Suit.SPADE
 import bigtwo.app.player.Player
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -33,20 +37,24 @@ class RulesTest {
     @Test
     fun testCompareHands_DifferentType_Southern() {
         // 南方规则中：Flush > Straight
-        val straight = listOf(Card(3, CLUB), Card(4, DIAMOND), Card(5, HEART), Card(6, SPADE), Card(7, CLUB))
-        val flush = listOf(Card(2, HEART), Card(5, HEART), Card(8, HEART), Card(10, HEART), Card(13, HEART))
+        val straight =
+            listOf(Card(3, CLUB), Card(4, DIAMOND), Card(5, HEART), Card(6, SPADE), Card(7, CLUB))
+        val flush =
+            listOf(Card(2, HEART), Card(5, HEART), Card(8, HEART), Card(10, HEART), Card(13, HEART))
 
-        val result = southernRules.compareHands(flush,straight)
+        val result = southernRules.compareHands(flush, straight)
         assertTrue("南方规则中同花应胜过顺子", result == 1)
     }
 
     @Test
     fun testCompareHands_DifferentType_Northern() {
         // 北方规则中：Flush > Full House
-        val fullHouse = listOf(Card(9, HEART), Card(9, CLUB), Card(9, DIAMOND), Card(5, CLUB), Card(5, SPADE))
-        val flush = listOf(Card(2, CLUB), Card(5, CLUB), Card(8, CLUB), Card(10, CLUB), Card(12, CLUB))
+        val fullHouse =
+            listOf(Card(9, HEART), Card(9, CLUB), Card(9, DIAMOND), Card(5, CLUB), Card(5, SPADE))
+        val flush =
+            listOf(Card(2, CLUB), Card(5, CLUB), Card(8, CLUB), Card(10, CLUB), Card(12, CLUB))
 
-        val result = northernRules.compareHands(flush,fullHouse)
+        val result = northernRules.compareHands(flush, fullHouse)
         assertTrue("北方规则中同花应胜过葫芦", result == 1)
     }
 

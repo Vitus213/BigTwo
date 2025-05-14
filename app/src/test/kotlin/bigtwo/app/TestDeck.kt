@@ -2,7 +2,8 @@ package bigtwo.app
 
 import bigtwo.app.model.Deck
 import org.junit.Test
-class TestDeck{
+
+class TestDeck {
     @Test
     fun testDeckCreation() {
         val deck = Deck()
