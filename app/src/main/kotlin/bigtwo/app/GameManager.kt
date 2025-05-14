@@ -3,6 +3,7 @@ package bigtwo.app
 import bigtwo.app.model.Card
 import bigtwo.app.model.Deck
 import bigtwo.app.ai.AutoPlayer
+import bigtwo.app.model.HandType
 import bigtwo.app.player.Player
 import bigtwo.app.rules.RuleVariant
 import bigtwo.app.rules.Rules
@@ -54,6 +55,32 @@ class GameManager(
         println("游戏开始，${players[currentPlayerIndex].name}首先出牌(持有方块3)")
         consecutivePassCount = 0
     }
+    public fun showFirstPlayer(): Player {
+        println("首位出牌玩家是 ${players[currentPlayerIndex].name}")
+        return players[currentPlayerIndex]
+    }
+    public fun showPlayer(index : Int): Player{
+        return players[index]
+    }
+    public fun showgameended(): Boolean {
+        if (players.any { it.hasWon()}){
+            return true
+        }
+        return false
+    }
+    public fun getPlayers(): List<Player> = players
+
+    /** 获取当前玩家索引 */
+    public fun getCurrentPlayerIndex(): Int = currentPlayerIndex
+
+    /** 获取指定玩家手牌 */
+    public  fun getPlayerHand(playerIndex: Int): List<Card> = players[playerIndex].getCards()
+
+    /** 获取上一手牌 */
+    public  fun getPreviousHand(): List<Card>? = previousHand
+
+    /** 检查游戏是否结束 */
+    public fun isGameEnded(): Boolean = gameEnded
 
     // 重置所有玩家的过牌状态
     private fun resetPassStatus() {
@@ -89,16 +116,32 @@ class GameManager(
         if (previousHand != null) {
             println("上一手牌: $previousHand 由 ${lastPlayedBy?.name} 出出")
         }
-
-        // 判断是否需要自动出牌
-        if (!currentPlayer.isHuman || autoPlay) {
-            val cardsToPlay = autoPlayer.autoPlayCards(currentPlayer, previousHand)
-
+        // 判断是否是首轮且当前玩家持有方块三
+        val isFirstTurn = previousHand == null
+        if (isFirstTurn ) {
+            println("${currentPlayer.name} 持有方块3，必须出牌")
+            if (!currentPlayer.isHuman || autoPlay) {
+                val cardsToPlay = autoPlayer.autoPlayCards(currentPlayer, previousHand)
+                handlePlay(currentPlayer, cardsToPlay)
+            } else {
+                // 人类玩家交互式出牌
+                val cardsToPlay = getPlayerInputWithTimeout(currentPlayer)
+                require(cardsToPlay.contains(Card(3, Card.Suit.DIAMOND))) { "必须出方块3" }
+                handlePlay(currentPlayer, cardsToPlay)
+            }
+            val cardsToPlay = autoPlayer.autoPlayCards(currentPlayer, null) // 自动选择包含方块3的牌
             handlePlay(currentPlayer, cardsToPlay)
         } else {
-            // 人类玩家交互式出牌
-            val cardsToPlay = getPlayerInputWithTimeout(currentPlayer)
-            handlePlay(currentPlayer, cardsToPlay)
+            // 判断是否需要自动出牌
+            if (!currentPlayer.isHuman || autoPlay) {
+                val cardsToPlay = autoPlayer.autoPlayCards(currentPlayer, previousHand)
+
+                handlePlay(currentPlayer, cardsToPlay)
+            } else {
+                // 人类玩家交互式出牌
+                val cardsToPlay = getPlayerInputWithTimeout(currentPlayer)
+                handlePlay(currentPlayer, cardsToPlay)
+            }
         }
 
         // 检查是否有玩家胜利
@@ -120,7 +163,8 @@ class GameManager(
             playerPassStatus[player] = true
             consecutivePassCount++
         } else {
-            player.playCards(cardsToPlay)
+            val previousHandType =previousHand?.let{ HandType.from(it) }
+            player.playCards(cardsToPlay, previousHandType)
             println("${player.name} 出牌: $cardsToPlay")
             previousHand = cardsToPlay
             lastPlayedBy = player
@@ -177,19 +221,6 @@ class GameManager(
         scores.forEach { (player, score) ->
             println("${player.name}: $score 分")
         }
-    }
-    public fun showFirstPlayer(): Player {
-        println("首位出牌玩家是 ${players[currentPlayerIndex].name}")
-        return players[currentPlayerIndex]
-    }
-    public fun showPlayer(index : Int): Player{
-        return players[index]
-    }
-    public fun showgameended(): Boolean {
-        if (players.any { it.hasWon()}){
-                return true
-        }
-            return false
     }
 
 }

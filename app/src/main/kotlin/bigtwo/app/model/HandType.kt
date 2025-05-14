@@ -54,6 +54,7 @@ class HandType private constructor(
         return if (type != other.type) {
             type.compareTo(other.type)
         } else {
+            //print("比较牌型: $type")
             when (type) {
                 Type.SINGLE, Type.PAIR, Type.TRIPLE, Type.STRAIGHT, Type.FLUSH, Type.STRAIGHT_FLUSH -> {
                     cards.max().compareTo(other.cards.max())

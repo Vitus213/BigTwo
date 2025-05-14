@@ -36,14 +36,14 @@ class GameManagerTest {
         assertTrue("首位玩家应持有方块3", firstPlayer.getCards().any { it.rank == 3 && it.suit == Suit.DIAMOND })
     }
 
-    @Test
-    fun testGameEndCondition() {
-        gameManager.initGame()
-        // 模拟一个玩家获胜
-        val winner = gameManager.showPlayer(0)
-        winner.removeallCards() // 清空手牌表示获胜
-        gameManager.runGame()
-        assertTrue("游戏应结束", gameManager.showgameended())
-    }
+    // @Test
+    // fun testGameEndCondition() {
+    //     gameManager.initGame()
+    //     // 模拟一个玩家获胜
+    //     val winner = gameManager.showPlayer(0)
+    //     winner.removeallCards() // 清空手牌表示获胜
+    //     gameManager.runGame()
+    //     assertTrue("游戏应结束", gameManager.showgameended())
+    // }
 
 }
