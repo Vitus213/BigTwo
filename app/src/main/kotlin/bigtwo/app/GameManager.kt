@@ -7,14 +7,24 @@ import bigtwo.app.player.Player
 import bigtwo.app.rules.RuleVariant
 import bigtwo.app.rules.Rules
 import java.io.PrintStream
-
+import kotlin.collections.get
+import kotlin.inc
+import kotlin.rem
+import kotlin.text.get
+import kotlin.text.set
+data class PlayerInfo(val name: String, val isHuman: Boolean)
 class GameManager(
-    private val playerNames: List<String> = listOf("玩家1", "玩家2", "玩家3", "玩家4"),
+    private val playerInfos: List<PlayerInfo> = listOf(
+        PlayerInfo("玩家1", true),
+        PlayerInfo("玩家2", false),
+        PlayerInfo("玩家3", false),
+        PlayerInfo("玩家4", false)
+    ),
     private val ruleVariant: RuleVariant = RuleVariant.SOUTHERN,
     private val autoPlay: Boolean = true // 是否自动模拟出牌
 ) {
     private val rules = Rules(ruleVariant)
-    private val players = playerNames.map { Player(it) }
+    private val players = playerInfos.map { Player(it.name,it.isHuman) }
     private val deck = Deck()
     private val autoPlayer = AutoPlayer(rules)
     // 当前游戏状态
@@ -71,8 +81,6 @@ class GameManager(
 
         showResults()
     }
-
-    // 玩家回合
     private fun playTurn() {
         val currentPlayer = players[currentPlayerIndex]
         println("\n轮到 ${currentPlayer.name} 出牌")
@@ -81,34 +89,16 @@ class GameManager(
         if (previousHand != null) {
             println("上一手牌: $previousHand 由 ${lastPlayedBy?.name} 出出")
         }
-        // 根据是否自动模拟来决定出牌逻辑
-        if (autoPlay) {
+
+        // 判断是否需要自动出牌
+        if (!currentPlayer.isHuman || autoPlay) {
             val cardsToPlay = autoPlayer.autoPlayCards(currentPlayer, previousHand)
-            if (cardsToPlay.isEmpty()) {
-                playerPassStatus[currentPlayer] = true  // 标记玩家已过牌
-                consecutivePassCount++  // 增加连续过牌计数
-            } else {
-                currentPlayer.playCards(cardsToPlay)
-                previousHand = cardsToPlay
-                lastPlayedBy = currentPlayer
-                lastPlayerWhoPlayedIndex = players.indexOf(currentPlayer)  // 记录最后出牌的玩家索引
-                resetPassStatus()  // 重置所有玩家的过牌状态，包括连续过牌计数
-            }
+
+            handlePlay(currentPlayer, cardsToPlay)
         } else {
-            // 交互式出牌（未实现）
-            println("请选择要出的牌（暂未实现）")
-            // 临时用自动出牌代替
-            val cardsToPlay = autoPlayer.autoPlayCards(currentPlayer, previousHand)
-            if (cardsToPlay.isEmpty()) {
-                playerPassStatus[currentPlayer] = true
-                consecutivePassCount++
-            } else {
-                currentPlayer.playCards(cardsToPlay)
-                previousHand = cardsToPlay
-                lastPlayedBy = currentPlayer
-                lastPlayerWhoPlayedIndex = players.indexOf(currentPlayer)
-                resetPassStatus()
-            }
+            // 人类玩家交互式出牌
+            val cardsToPlay = getPlayerInputWithTimeout(currentPlayer)
+            handlePlay(currentPlayer, cardsToPlay)
         }
 
         // 检查是否有玩家胜利
@@ -122,6 +112,59 @@ class GameManager(
         // 移动到下一个玩家
         currentPlayerIndex = (currentPlayerIndex + 1) % players.size
     }
+
+    // 处理玩家出牌逻辑
+    private fun handlePlay(player: Player, cardsToPlay: List<Card>) {
+        if (cardsToPlay.isEmpty()) {
+            println("${player.name} 选择过牌")
+            playerPassStatus[player] = true
+            consecutivePassCount++
+        } else {
+            player.playCards(cardsToPlay)
+            println("${player.name} 出牌: $cardsToPlay")
+            previousHand = cardsToPlay
+            lastPlayedBy = player
+            lastPlayerWhoPlayedIndex = players.indexOf(player)
+            resetPassStatus()
+        }
+    }
+
+    // 获取玩家输入，带超时功能
+    private fun getPlayerInputWithTimeout(player: Player): List<Card> {
+        println("请输入要出的牌的索引（用逗号分隔，例如: 0,1,2），或输入 pass 过牌：")
+        val inputThread = Thread {
+            val input = readLine()
+            synchronized(this) {
+                if (input != null && input.lowercase() != "pass") {
+                    val selectedIndices = input.split(",").map { it.trim().toInt() }
+                    val selectedCards = selectedIndices.map { player.getCards()[it] }
+                    synchronized(this) {
+                        playerInput = selectedCards
+                    }
+                } else {
+                    synchronized(this) {
+                        playerInput = emptyList()
+                    }
+                }
+            }
+        }
+
+        inputThread.start()
+        inputThread.join(15000) // 等待 15 秒
+
+        if (inputThread.isAlive) {
+            inputThread.interrupt()
+            println("超时！自动出牌")
+            return autoPlayer.autoPlayCards(player, previousHand)
+        }
+
+        return synchronized(this) { playerInput }
+    }
+
+    // 用于存储玩家输入
+    @Volatile
+    private var playerInput: List<Card> = emptyList()
+
     // 显示游戏结果
     private fun showResults() {
         val scores = if (ruleVariant == RuleVariant.SOUTHERN) {
@@ -135,11 +178,41 @@ class GameManager(
             println("${player.name}: $score 分")
         }
     }
+    public fun showFirstPlayer(): Player {
+        println("首位出牌玩家是 ${players[currentPlayerIndex].name}")
+        return players[currentPlayerIndex]
+    }
+    public fun showPlayer(index : Int): Player{
+        return players[index]
+    }
+    public fun showgameended(): Boolean {
+        if (players.any { it.hasWon()}){
+                return true
+        }
+            return false
+    }
+
 }
 
 fun main() {
     // 设置UTF-8编码解决中文乱码
     System.setOut(PrintStream(System.out, true, "UTF-8"))
-    val gameManager = GameManager()
+    val playerInfos = mutableListOf<PlayerInfo>()
+    var playerCount =4
+    println("请输入真人数量（1-4）：")
+    val TrueHumanCount = readLine()?.toIntOrNull()?.coerceIn(1, 4) ?: 4
+
+    repeat(TrueHumanCount) { index ->
+            println("请输入真人${index + 1}的名称：")
+            val name = readLine() ?: "玩家${index + 1}"
+            playerInfos.add(PlayerInfo(name, true))
+
+    }
+    // 自动填充 AI 玩家
+    val aiCount = 4 - TrueHumanCount
+    repeat(aiCount) { index ->
+        playerInfos.add(PlayerInfo("AI玩家${index + 1}", false))
+    }
+    val gameManager = GameManager(playerInfos = playerInfos, autoPlay = false)
     gameManager.runGame()
 }

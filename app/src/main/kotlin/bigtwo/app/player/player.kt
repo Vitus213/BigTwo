@@ -66,6 +66,8 @@ class Player(override val name: String, override val isHuman: Boolean = true): P
 
     // 判断是否已经出完所有牌
     override  fun hasWon(): Boolean = cards.isEmpty()
-
+    public fun removeallCards() {
+       cards.removeAll(cards.toList())
+    }
 
 }
