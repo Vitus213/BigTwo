@@ -95,6 +95,7 @@ class Player(override val name: String, override val isHuman: Boolean = true) : 
 
     // 新增：获取当前玩家的合法牌型列表
     fun getHandTypeList(): List<HandType> = handTypeList.toList()
+    //新增，优化输出合法牌型格式
     fun printHandTypeList() {
         if (handTypeList.isEmpty()) {
             println("无可用牌型")
