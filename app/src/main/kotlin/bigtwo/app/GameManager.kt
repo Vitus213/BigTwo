@@ -167,13 +167,23 @@ class GameManager(
             playerPassStatus[player] = true
             consecutivePassCount++
         } else {
-            val previousHandType = previousHand?.let { HandType.from(it) }
-            player.playCards(cardsToPlay, previousHandType)
-            println("${player.name} 出牌: $cardsToPlay")
-            previousHand = cardsToPlay
-            lastPlayedBy = player
-            lastPlayerWhoPlayedIndex = players.indexOf(player)
-            resetPassStatus()
+            try {
+                val previousHandType = previousHand?.let { HandType.from(it) }
+                player.playCards(cardsToPlay, previousHandType)
+                println("${player.name} 出牌: $cardsToPlay")
+                previousHand = cardsToPlay
+                lastPlayedBy = player
+                lastPlayerWhoPlayedIndex = players.indexOf(player)
+                resetPassStatus()
+            } catch (e: IllegalArgumentException) {
+                println("出牌不合法：${e.message}，请重新选择出牌")
+                val newCardsToPlay = if (!player.isHuman || autoPlay) {
+                    autoPlayer.autoPlayCards(player, previousHand)
+                } else {
+                    getPlayerInputWithTimeout(player)
+                }
+                handlePlay(player, newCardsToPlay) // 递归调用重新处理出牌
+            }
         }
     }
 

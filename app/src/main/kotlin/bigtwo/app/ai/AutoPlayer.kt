@@ -13,7 +13,7 @@ class AutoPlayer(private val rules: Rules) {
             println("${player.name} 选择过牌")
             emptyList()
         } else {
-            println("${player.name} 出牌: $playableCards")
+
             playableCards
         }
     }
