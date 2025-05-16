@@ -10,7 +10,7 @@ class AutoPlayer(private val rules: Rules) {
         val playableCards = findPlayableCards(player.getCards(), previousHand)
 
         return if (playableCards.isEmpty()) {
-            println("${player.name} 选择过牌")
+
             emptyList()
         } else {
 

@@ -133,8 +133,6 @@ class GameManager(
                 require(cardsToPlay.contains(Card(3, Card.Suit.DIAMOND))) { "必须出方块3" }
                 handlePlay(currentPlayer, cardsToPlay)
             }
-            val cardsToPlay = autoPlayer.autoPlayCards(currentPlayer, null) // 自动选择包含方块3的牌
-            handlePlay(currentPlayer, cardsToPlay)
         } else {
             // 判断是否需要自动出牌
             if (!currentPlayer.isHuman || autoPlay) {
@@ -189,39 +187,52 @@ class GameManager(
 
     // 获取玩家输入，带超时功能
     private fun getPlayerInputWithTimeout(player: Player): List<Card> {
-        println("请输入要出的牌的索引（用逗号分隔，例如: 0,1,2），或输入 pass 过牌：")
+        val timeoutMillis = 15000L // 设置超时时间为15秒
+        var inputReceived = false
+        var result: List<Card> = emptyList()
+
         val inputThread = Thread {
-            val input = readLine()
-            synchronized(this) {
-                if (input != null && input.lowercase() != "pass") {
-                    val selectedIndices = input.split(",").map { it.trim().toInt() }
-                    val selectedCards = selectedIndices.map { player.getCards()[it] }
-                    synchronized(this) {
-                        playerInput = selectedCards
-                    }
+            try {
+                println("请输入要出的牌的索引（用逗号分隔，例如: 0,1,2），或输入 pass 过牌：")
+                val input = readLine()?.trim() ?: ""
+                if (input.equals("pass", ignoreCase = true)) {
+                    result = emptyList()
                 } else {
-                    synchronized(this) {
-                        playerInput = emptyList()
+                    val indices = input.split(",").map { it.trim().toInt() }
+                    val selectedCards = indices.map { player.getCards()[it] }
+
+                    // 如果是首轮，必须包含方块三
+                    if (previousHand == null && !selectedCards.contains(Card(3, Card.Suit.DIAMOND))) {
+                        throw IllegalArgumentException("首轮必须出方块3")
                     }
+                    result = selectedCards
                 }
+                inputReceived = true
+            } catch (e: Exception) {
+                println("输入非法：${e.message}，请重新输入")
             }
         }
 
         inputThread.start()
-        inputThread.join(15000) // 等待 15 秒
+        val startTime = System.currentTimeMillis()
 
-        if (inputThread.isAlive) {
-            inputThread.interrupt()
-            println("超时！自动出牌")
-            return autoPlayer.autoPlayCards(player, previousHand)
+        while (System.currentTimeMillis() - startTime < timeoutMillis) {
+            if (inputReceived) {
+                inputThread.join() // 等待输入线程结束
+                return result
+            }
+            Thread.sleep(100) // 避免忙等待
         }
 
-        return synchronized(this) { playerInput }
-    }
+        // 超时处理
+        if (!inputReceived) {
+            println("超时！系统将自动为 ${player.name} 托管出牌")
+            return autoPlayer.autoPlayCards(player, previousHand) // 自动出牌
+        }
 
-    // 用于存储玩家输入
-    @Volatile
-    private var playerInput: List<Card> = emptyList()
+        inputThread.join() // 确保线程结束
+        return result
+    }
 
     // 显示游戏结果
     private fun showResults() {
