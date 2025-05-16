@@ -1,5 +1,5 @@
 package bigtwo.app.ai
-
+import bigtwo.app.utils.combinations
 import bigtwo.app.model.Card
 import bigtwo.app.player.Player
 import bigtwo.app.rules.Rules
@@ -19,21 +19,23 @@ class AutoPlayer(private val rules: Rules) {
     }
 
     private fun findPlayableCards(cards: List<Card>, previousHand: List<Card>?): List<Card> {
-        // 简化实现：只选择单张牌
-        if (previousHand == null) {
-            // 首次出牌，选择最小的牌
-            return if (cards.isNotEmpty()) listOf(cards.first()) else emptyList()
+        val allCombinations = mutableListOf<List<Card>>()
+
+        // 生成所有可能的牌型组合
+        for (i in 1..cards.size) {
+            allCombinations.addAll(cards.combinations(i))
         }
 
-        // 尝试找到能够大过上一手牌的单张
-        if (previousHand.size == 1) {
-            val validCards = cards.filter { card ->
-                rules.isValidPlay(listOf(card), previousHand)
+        // 筛选出合法的牌型
+        val validPlays = allCombinations.filter { combination ->
+            try {
+                rules.isValidPlay(combination, previousHand)
+            } catch (e: IllegalArgumentException) {
+                false
             }
-            return if (validCards.isNotEmpty()) listOf(validCards.first()) else emptyList()
         }
 
-        // 其他牌型情况暂不实现
-        return emptyList()
+        // 随机选择一个合法牌型
+        return if (validPlays.isNotEmpty()) validPlays.random() else emptyList()
     }
 }

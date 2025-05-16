@@ -42,17 +42,14 @@ class GameManager(
 
     // 初始化游戏
     fun initGame() {
-        // 发牌
         val hands = deck.deal()
         players.forEachIndexed { index, player ->
             player.receiveCards(hands[index])
-            playerPassStatus[player] = false  // 初始化过牌状态
+            // 修复初始化牌型列表时的调用
+            player.updateHandTypeList(previousHand = null, rules = rules)  // 初始化牌型列表
         }
-
-        // 确定首出玩家（持有方块3的玩家）
         currentPlayerIndex = players.indexOfFirst { rules.hasStartingCard(it) }
         println("游戏开始，${players[currentPlayerIndex].name}首先出牌(持有方块3)")
-        consecutivePassCount = 0
     }
 
     public fun showFirstPlayer(): Player {
@@ -112,41 +109,33 @@ class GameManager(
         showResults()
     }
 
-    private fun playTurn() {
+    fun playTurn() {
         val currentPlayer = players[currentPlayerIndex]
         println("\n轮到 ${currentPlayer.name} 出牌")
-        println("当前手牌: ${currentPlayer.getCards().sorted()}")
 
-        if (previousHand != null) {
-            println("上一手牌: $previousHand 由 ${lastPlayedBy?.name} 出出")
-        }
-        // 判断是否是首轮且当前玩家持有方块三
-        val isFirstTurn = previousHand == null
-        if (isFirstTurn) {
-            println("${currentPlayer.name} 持有方块3，必须出牌")
-            if (!currentPlayer.isHuman || autoPlay) {
-                val cardsToPlay = autoPlayer.autoPlayCards(currentPlayer, previousHand)
-                handlePlay(currentPlayer, cardsToPlay)
+        // 仅在人类玩家回合显示手牌和牌型列表
+        if (currentPlayer.isHuman) {
+            println("当前手牌: ${currentPlayer.getCards().sorted()}")
+            currentPlayer.updateHandTypeList(previousHand = previousHand, rules = rules)
+            println("当前可用牌型列表:")
+            currentPlayer.printHandTypeList()
+
+            // 提示上一手牌
+            if (previousHand != null && lastPlayedBy != null) {
+                println("上一手牌：${previousHand}（由 ${lastPlayedBy!!.name} 出）")
             } else {
-                // 人类玩家交互式出牌
-                val cardsToPlay = getPlayerInputWithTimeout(currentPlayer)
-                require(cardsToPlay.contains(Card(3, Card.Suit.DIAMOND))) { "必须出方块3" }
-                handlePlay(currentPlayer, cardsToPlay)
+                println("上一手牌：无")
             }
+        }
+
+        if (!currentPlayer.isHuman || autoPlay) {
+            val cardsToPlay = autoPlayer.autoPlayCards(currentPlayer, previousHand)
+            handlePlay(currentPlayer, cardsToPlay)
         } else {
-            // 判断是否需要自动出牌
-            if (!currentPlayer.isHuman || autoPlay) {
-                val cardsToPlay = autoPlayer.autoPlayCards(currentPlayer, previousHand)
-
-                handlePlay(currentPlayer, cardsToPlay)
-            } else {
-                // 人类玩家交互式出牌
-                val cardsToPlay = getPlayerInputWithTimeout(currentPlayer)
-                handlePlay(currentPlayer, cardsToPlay)
-            }
+            val cardsToPlay = getPlayerInputWithTimeout(currentPlayer)
+            handlePlay(currentPlayer, cardsToPlay)
         }
 
-        // 检查是否有玩家胜利
         if (players.any { it.hasWon() }) {
             val winner = players.first { it.hasWon() }
             println("\n🎉 ${winner.name} 获胜！")
@@ -154,10 +143,8 @@ class GameManager(
             return
         }
 
-        // 移动到下一个玩家
         currentPlayerIndex = (currentPlayerIndex + 1) % players.size
     }
-
     // 处理玩家出牌逻辑
     private fun handlePlay(player: Player, cardsToPlay: List<Card>) {
         if (cardsToPlay.isEmpty()) {
@@ -188,28 +175,30 @@ class GameManager(
     // 获取玩家输入，带超时功能
     private fun getPlayerInputWithTimeout(player: Player): List<Card> {
         val timeoutMillis = 15000L // 设置超时时间为15秒
-        var inputReceived = false
         var result: List<Card> = emptyList()
 
         val inputThread = Thread {
-            try {
-                println("请输入要出的牌的索引（用逗号分隔，例如: 0,1,2），或输入 pass 过牌：")
-                val input = readLine()?.trim() ?: ""
-                if (input.equals("pass", ignoreCase = true)) {
-                    result = emptyList()
-                } else {
-                    val indices = input.split(",").map { it.trim().toInt() }
-                    val selectedCards = indices.map { player.getCards()[it] }
+            while (true) {
+                try {
+                    println("请输入要出的牌的索引（用逗号分隔，例如: 0,1,2），或输入 pass 过牌：")
+                    val input = readLine()?.trim() ?: ""
+                    if (input.equals("pass", ignoreCase = true)) {
+                        result = emptyList()
+                        break
+                    } else {
+                        val indices = input.split(",").map { it.trim().toInt() }
+                        val selectedCards = indices.map { player.getCards()[it] }
 
-                    // 如果是首轮，必须包含方块三
-                    if (previousHand == null && !selectedCards.contains(Card(3, Card.Suit.DIAMOND))) {
-                        throw IllegalArgumentException("首轮必须出方块3")
+                        // 如果是首轮，必须包含方块三
+                        if (previousHand == null && !selectedCards.contains(Card(3, Card.Suit.DIAMOND))) {
+                            throw IllegalArgumentException("首轮必须出方块3")
+                        }
+                        result = selectedCards
+                        break
                     }
-                    result = selectedCards
+                } catch (e: Exception) {
+                    println("输入非法：${e.message}，请重新输入")
                 }
-                inputReceived = true
-            } catch (e: Exception) {
-                println("输入非法：${e.message}，请重新输入")
             }
         }
 
@@ -217,23 +206,21 @@ class GameManager(
         val startTime = System.currentTimeMillis()
 
         while (System.currentTimeMillis() - startTime < timeoutMillis) {
-            if (inputReceived) {
-                inputThread.join() // 等待输入线程结束
+            if (!inputThread.isAlive) {
                 return result
             }
             Thread.sleep(100) // 避免忙等待
         }
 
         // 超时处理
-        if (!inputReceived) {
+        if (inputThread.isAlive) {
             println("超时！系统将自动为 ${player.name} 托管出牌")
+            inputThread.interrupt()
             return autoPlayer.autoPlayCards(player, previousHand) // 自动出牌
         }
 
-        inputThread.join() // 确保线程结束
         return result
     }
-
     // 显示游戏结果
     private fun showResults() {
         val scores = if (ruleVariant == RuleVariant.SOUTHERN) {
