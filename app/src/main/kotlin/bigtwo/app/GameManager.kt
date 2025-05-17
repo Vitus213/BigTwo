@@ -21,6 +21,7 @@ class GameManager(
     private val ruleVariant: RuleVariant = RuleVariant.SOUTHERN,
     private val autoPlay: Boolean = true // 是否自动模拟出牌
 ) {
+
     private val rules = Rules(ruleVariant) // 游戏规则
     private val players = playerInfos.map { Player(it.name, it.isHuman) } // 初始化玩家
     private val deck = Deck() // 初始化牌堆
@@ -37,6 +38,8 @@ class GameManager(
     private var lastPlayerWhoPlayedIndex = -1 // 最后出牌玩家的索引
     private var consecutivePassCount = 0 // 连续过牌计数
 
+
+
     // 初始化游戏
     fun initGame() {
         val hands = deck.deal() // 发牌
@@ -48,11 +51,14 @@ class GameManager(
         println("游戏开始，${players[currentPlayerIndex].name}首先出牌(持有方块3)")
     }
 
-    // 显示首位出牌玩家
-    public fun showFirstPlayer(): Player {
+
+
+    fun showFirstPlayer(): Player {
+
         println("首位出牌玩家是 ${players[currentPlayerIndex].name}")
         return players[currentPlayerIndex]
     }
+
 
     // 显示指定玩家
     public fun showPlayer(index: Int): Player {
@@ -60,9 +66,11 @@ class GameManager(
     }
 
     // 检查游戏是否结束
+
     fun showgameended(): Boolean {
         return players.any { it.hasWon() }
     }
+
 
     // 获取所有玩家
     public fun getPlayers(): List<Player> = players
@@ -78,6 +86,7 @@ class GameManager(
 
     // 检查游戏是否结束
     public fun isGameEnded(): Boolean = gameEnded
+
 
     // 重置所有玩家的过牌状态
     private fun resetPassStatus() {
@@ -97,8 +106,10 @@ class GameManager(
             // 检测是否连续三个玩家过牌
             if (consecutivePassCount >= 3) {
                 println("连续三人过牌！下一位玩家可以任意出牌")
+
                 resetPassStatus() // 重置过牌状态
                 previousHand = null // 清空上一手牌，允许任意牌型重新开始
+
             }
         }
 
@@ -108,7 +119,9 @@ class GameManager(
     // 进行一轮游戏
     fun playTurn() {
         val currentPlayer = players[currentPlayerIndex] // 获取当前玩家
+
         println("\n轮到 ${currentPlayer.name} 出牌")
+
 
         // 如果是人类玩家，显示手牌和可用牌型
         if (currentPlayer.isHuman) {
@@ -128,13 +141,19 @@ class GameManager(
         // 自动或手动出牌
         if (!currentPlayer.isHuman || autoPlay) {
             val cardsToPlay = autoPlayer.autoPlayCards(currentPlayer, previousHand) // 自动出牌
+
             handlePlay(currentPlayer, cardsToPlay)
+            if (isInitialTurn) {
+                isInitialTurn = false
+            }
         } else {
+
             val cardsToPlay = getPlayerInputWithTimeout(currentPlayer) // 获取玩家输入
             handlePlay(currentPlayer, cardsToPlay)
         }
 
         // 检查是否有玩家获胜
+
         if (players.any { it.hasWon() }) {
             val winner = players.first { it.hasWon() }
             println("\n🎉 ${winner.name} 获胜！")
@@ -143,6 +162,7 @@ class GameManager(
         }
 
         // 切换到下一位玩家
+
         currentPlayerIndex = (currentPlayerIndex + 1) % players.size
     }
 
@@ -153,6 +173,7 @@ class GameManager(
             playerPassStatus[player] = true // 标记玩家过牌
             consecutivePassCount++ // 增加连续过牌计数
         } else {
+
             try {
                 val previousHandType = previousHand?.let { HandType.from(it) } // 获取上一手牌的牌型
                 player.playCards(cardsToPlay, previousHandType) // 验证并出牌
@@ -169,12 +190,14 @@ class GameManager(
                     getPlayerInputWithTimeout(player) // 获取玩家输入
                 }
                 handlePlay(player, newCardsToPlay) // 递归调用重新处理出牌
+
             }
         }
     }
 
     // 获取玩家输入，带超时功能（该函数已经大改）
     private fun getPlayerInputWithTimeout(player: Player): List<Card> {
+
         val timeoutMillis = 15000L // 设置超时时间为15秒
         var result: List<Card> = emptyList()
 
@@ -196,12 +219,15 @@ class GameManager(
                         }
                         result = selectedCards // 玩家选择出牌
                         break
+
                     }
                 } catch (e: Exception) {
                     println("输入非法：${e.message}，请重新输入")
                 }
             }
-        }
+            inputThread.start()
+            inputThread.join(150000) // 等待 15 秒
+
 
         inputThread.start()
         val startTime = System.currentTimeMillis()
@@ -223,6 +249,7 @@ class GameManager(
         return result
     }
 
+
     // 显示游戏结果
     private fun showResults() {
         val scores = if (ruleVariant == RuleVariant.SOUTHERN) {
@@ -239,7 +266,6 @@ class GameManager(
 }
 
 fun main() {
-    // 设置UTF-8编码解决中文乱码
     System.setOut(PrintStream(System.out, true, "UTF-8"))
     val playerInfos = mutableListOf<PlayerInfo>()
     println("请输入真人数量（1-4）：")
@@ -251,7 +277,9 @@ fun main() {
         playerInfos.add(PlayerInfo(name, true))
     }
 
+
     // 自动填充 AI 玩家
+
     val aiCount = 4 - TrueHumanCount
     repeat(aiCount) { index ->
         playerInfos.add(PlayerInfo("AI玩家${index + 1}", false))
