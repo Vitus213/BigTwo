@@ -2,6 +2,8 @@ package bigtwo.app.player
 
 import bigtwo.app.model.Card
 import bigtwo.app.model.HandType
+import bigtwo.app.rules.Rules
+import bigtwo.app.utils.combinations
 
 interface PlayerInterface {
     val name: String
@@ -20,10 +22,13 @@ class Player(override val name: String, override val isHuman: Boolean = true) : 
     // 玩家手牌
     private val cards = mutableListOf<Card>()
 
+    // 新增：存储当前玩家的所有合法牌型
+    private val handTypeList = mutableListOf<HandType>()
+
     // 接收一组牌
     override fun receiveCards(newCards: List<Card>) {
         cards.addAll(newCards)
-        sortCards()
+        sortCards() // 对手牌进行排序
     }
 
     // 获取当前手牌
@@ -50,12 +55,15 @@ class Player(override val name: String, override val isHuman: Boolean = true) : 
         // 从手牌中移除打出的牌
         cards.removeAll(selectedCards)
 
+        // 新增：出牌后更新牌型列表
+        updateHandTypeList(null)
+
         return selectedCards
     }
 
     // 对手牌进行排序
     private fun sortCards() {
-        cards.sortBy { it.rank * 10 + it.suit.ordinal }//进行排序，从小到大
+        cards.sortBy { it.rank * 10 + it.suit.ordinal } // 进行排序，从小到大
     }
 
     // 检查玩家是否有特定的牌
@@ -66,8 +74,50 @@ class Player(override val name: String, override val isHuman: Boolean = true) : 
 
     // 判断是否已经出完所有牌
     override fun hasWon(): Boolean = cards.isEmpty()
-    public fun removeallCards() {
-        cards.removeAll(cards.toList())
+
+    // 新增：更新当前玩家的合法牌型列表
+    fun updateHandTypeList(previousHand: List<Card>?, rules: Rules? = null) {
+        handTypeList.clear() // 清空之前的牌型列表
+        for (i in 1..cards.size) { // 从 2 开始，跳过单张牌型
+            val combinations = cards.combinations(i) // 生成所有可能的牌型组合
+            combinations.forEach { combination ->
+                try {
+                    // 如果规则对象存在，验证牌型是否合法
+                    if (rules == null || rules.isValidPlay(combination, previousHand)) {
+                        handTypeList.add(HandType.from(combination)) // 添加合法牌型
+                    }
+                } catch (_: IllegalArgumentException) {
+                    // 忽略非法牌型
+                }
+            }
+        }
     }
 
+    // 新增：获取当前玩家的合法牌型列表
+    fun getHandTypeList(): List<HandType> = handTypeList.toList()
+    //新增，优化输出合法牌型格式
+    fun printHandTypeList() {
+        if (handTypeList.isEmpty()) {
+            println("无可用牌型")
+            return
+        }
+
+        var currentType: HandType.Type? = null
+        handTypeList.forEach { handType ->
+            if (handType.type != currentType) {
+                if (currentType != null) println() // 换行
+                currentType = handType.type
+                print("${currentType}: ")
+            }
+            print("${handType.cards} ")
+        }
+        println() // 最后换行
+    }
+
+
+
+    // 新增：移除所有手牌（用于重置玩家状态）
+    fun removeAllCards() {
+        cards.clear()
+    }
 }
