@@ -83,25 +83,46 @@ fun BluetoothTestScreen(
             onClick = {
                 if (hasBluetoothConnectPermission) {
                     if (!isServerStarted) {
-                        isServerStarted = true
+                        // isServerStarted = true // 不要在这里立即设置为true
                         coroutineScope.launch(Dispatchers.IO) {
-                            server.startServer(
-                                onMessageReceived = { received ->
-                                    coroutineScope.launch(Dispatchers.Main) {
-                                        receivedMessages.add("服务端收到: $received")
+                            try {
+                                server.startServer(
+                                    onMessageReceived = { received ->
+                                        coroutineScope.launch(Dispatchers.Main) {
+                                            receivedMessages.add("服务端收到: $received")
+                                        }
+                                    },
+                                    onClientConnected = {
+                                        coroutineScope.launch(Dispatchers.Main) {
+                                            isClientConnectedToServer = true
+                                            Toast.makeText(context, "客户端已连接到服务端", Toast.LENGTH_SHORT).show()
+                                            Log.d("BluetoothTestScreen", "服务端收到客户端连接通知 (UI)")
+                                        }
+                                    },
+                                    onClientDisconnected = {
+                                        coroutineScope.launch(Dispatchers.Main) {
+                                            isClientConnectedToServer = false
+                                            Toast.makeText(context, "客户端已断开与服务端的连接", Toast.LENGTH_SHORT).show()
+                                            Log.d("BluetoothTestScreen", "服务端收到客户端断开连接通知 (UI)")
+                                        }
                                     }
-                                },
-                                onClientConnected = {
-                                    coroutineScope.launch(Dispatchers.Main) {
-                                        isClientConnectedToServer = true
-                                        Toast.makeText(context, "客户端已连接到服务端", Toast.LENGTH_SHORT).show()
-                                    }
+                                )
+                                // 只有当 startServer 内部不抛出异常时才更新状态
+                                // 注意：startServer 内部会启动一个协程来 accept，所以这里立即返回并不意味着 accept 成功
+                                // 更好的做法是让 startServer 返回一个启动成功/失败的指示
+                                // 但目前可以先这样，依靠 Toast 和日志
+                                coroutineScope.launch(Dispatchers.Main) {
+                                    isServerStarted = true // 在 startServer 调用完成后再更新
+                                    Toast.makeText(context, "服务端正在尝试启动...", Toast.LENGTH_SHORT).show()
                                 }
-                                // 暂时移除 onClientDisconnected，因为它在 BluetoothServer 中未定义
-                                // 如果需要此功能，请先修改 BluetoothServer 类
-                            )
+                            } catch (e: Exception) {
+                                Log.e("BluetoothTestScreen", "启动服务端协程失败: ${e.message}", e)
+                                coroutineScope.launch(Dispatchers.Main) {
+                                    isServerStarted = false // 启动失败，重置状态
+                                    Toast.makeText(context, "服务端启动失败: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                                }
+                            }
                         }
-                        Toast.makeText(context, "服务端已启动", Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(context, "服务端已启动", Toast.LENGTH_SHORT).show()
                     }
@@ -110,11 +131,29 @@ fun BluetoothTestScreen(
                 }
             },
             modifier = Modifier.fillMaxWidth(),
-            enabled = hasBluetoothConnectPermission && !isServerStarted
+            enabled = hasBluetoothConnectPermission && !isServerStarted // 按钮启用条件不变
         ) {
             Text(text = if (isServerStarted) "服务端已启动" else "启动服务端")
         }
 
+        // --- 停止服务端按钮 ---
+        Button(
+            onClick = {
+                coroutineScope.launch(Dispatchers.IO) {
+                    server.close() // 关闭服务器
+                    coroutineScope.launch(Dispatchers.Main) {
+                        isServerStarted = false
+                        isClientConnectedToServer = false // 确保客户端连接状态也重置
+                        Toast.makeText(context, "服务器已停止", Toast.LENGTH_SHORT).show()
+                        Log.d("BluetoothTestScreen", "服务端已手动停止")
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = isServerStarted // 只有在服务器启动时才可点击
+        ) {
+            Text(text = "停止服务端")
+        }
         // --- 接收消息显示区域 ---
         Text(text = "接收的消息：")
         LazyColumn(modifier = Modifier.height(150.dp)) {
@@ -130,14 +169,19 @@ fun BluetoothTestScreen(
                     coroutineScope.launch {
                         val devices: List<BluetoothDevice> = client.getPairedDevices()
                         if (devices.isNotEmpty()) {
+                            // 尝试连接到第一个配对设备
+                            // 这里可以加入一个选择设备的对话框，如果有多台设备
                             val connected = client.connectToServer(devices[0])
                             if (connected) {
                                 Toast.makeText(context, "客户端已连接", Toast.LENGTH_SHORT).show()
+                                Log.d("BluetoothTestScreen", "客户端连接成功") // 添加日志
                             } else {
-                                Toast.makeText(context, "连接失败", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "客户端连接失败", Toast.LENGTH_SHORT).show()
+                                Log.d("BluetoothTestScreen", "客户端连接失败") // 添加日志
                             }
                         } else {
                             Toast.makeText(context, "未找到已配对设备", Toast.LENGTH_SHORT).show()
+                            Log.d("BluetoothTestScreen", "客户端：未找到已配对设备") // 添加日志
                         }
                     }
                 } else {
@@ -145,7 +189,7 @@ fun BluetoothTestScreen(
                 }
             },
             modifier = Modifier.fillMaxWidth(),
-            enabled = hasBluetoothConnectPermission && !isServerStarted && !isClientConnected
+            enabled = hasBluetoothConnectPermission && !isServerStarted && !isClientConnected // 只有在客户端未连接且未启动服务端时才可点击
         ) {
             Text(text = if (isClientConnected) "客户端已连接" else "连接到服务端 (作为客户端)")
         }

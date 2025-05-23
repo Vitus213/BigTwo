@@ -4,7 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import bigtwo.app.bluetooth.BluetoothPermissionManager
-import bigtwo.app.ui.BluetoothTestScreen
+import bigtwo.app.ui.BluetoothTestScreen // 确保导入您的 UI Composable
 
 class MainActivity : ComponentActivity() {
 
@@ -23,6 +23,7 @@ class MainActivity : ComponentActivity() {
         )
 
         // 调用管理器的方法来处理蓝牙权限
+        // 这将检查并请求所有必要的蓝牙和位置权限
         bluetoothPermissionManager.manageBluetoothPermissions()
 
         // 设置 Compose UI 内容
@@ -31,6 +32,8 @@ class MainActivity : ComponentActivity() {
             BluetoothTestScreen(
                 hasBluetoothScanPermission = bluetoothPermissionManager.hasBluetoothScanPermission.value,
                 hasBluetoothConnectPermission = bluetoothPermissionManager.hasBluetoothConnectPermission.value
+                // 如果您的 BluetoothTestScreen 还需要位置权限的状态，可以也传递过去
+                // hasFineLocationPermission = bluetoothPermissionManager.hasFineLocationPermission.value
             )
         }
     }
