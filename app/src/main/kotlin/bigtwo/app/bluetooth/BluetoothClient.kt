@@ -1,261 +1,247 @@
 package bigtwo.app.network
 
-import android.Manifest
-import android.annotation.SuppressLint // 引入此注解
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
 import android.content.Context
-import android.content.pm.PackageManager
-import android.os.Build
 import android.util.Log
-import androidx.core.content.ContextCompat
-import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
-import java.io.Closeable
 import java.io.IOException
-import java.io.InputStreamReader
+import java.io.InputStream
 import java.io.OutputStream
 import java.util.UUID
-/**
- * 定义蓝牙连接的当前状态。
- */
-enum class ConnectionState {
-    Disconnected, // 已断开连接
-    Connecting,   // 正在连接中
-    Connected,    // 已成功连接
-    Failed        // 连接失败
-}
-/**
- * 蓝牙客户端，用于连接到蓝牙服务器并进行数据通信。
- * 遵循 Coroutines 和 Flow 模式进行异步操作和状态管理。
- *
- * @param context 应用程序上下文，用于权限检查和获取蓝牙适配器。
- */
-class BluetoothClient(private val context: Context) : Closeable {
+import kotlinx.coroutines.channels.ClosedSendChannelException // <<<< 添加这一行
+private const val SERVICE_UUID = "00001101-0000-1000-8000-00805f9b34fb" // <-- 确保这里和服务端一致，如果之前更换过自定义UUID，请用您自定义的
 
-    // 通过 lazy 初始化 BluetoothAdapter，兼容不同 Android 版本获取方式
+class BluetoothClient(private val context: Context) {
+
     private val bluetoothAdapter: BluetoothAdapter? by lazy {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) { // API 31+ 使用 BluetoothManager 获取
-            val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-            bluetoothManager.adapter
-        } else { // 兼容旧版本，使用 getDefaultAdapter()
-            @Suppress("DEPRECATION") // 抑制对已弃用方法的警告
-            BluetoothAdapter.getDefaultAdapter()
-        }
+        (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
     }
 
-    private var bluetoothSocket: BluetoothSocket? = null
-    private var outputStream: OutputStream? = null
+    private var mmSocket: BluetoothSocket? = null
+    private var mmInputStream: InputStream? = null
+    private var mmOutputStream: OutputStream? = null
 
-    // 用于管理客户端内部所有协程的范围，当客户端关闭时，此范围内的所有协程都将被取消。
-    private val clientScope = CoroutineScope(
-        Dispatchers.IO + SupervisorJob() + CoroutineExceptionHandler { _, throwable ->
-            Log.e(TAG, "Coroutine failed: ${throwable.message}", throwable)
-            updateConnectionState(ConnectionState.Failed)
-            closeConnection()
-        }
-    )
+    // sendChannel 现在只声明而不初始化，因为它将在 connectToServer 内部每次重新创建
+    private lateinit var sendChannel: Channel<ByteArray>
 
-    // 用于发送连接状态更新的 StateFlow
-    private val _connectionState = MutableStateFlow(ConnectionState.Disconnected)
-    val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+    private val _messageReceived = MutableSharedFlow<String>()
+    val messageReceived = _messageReceived.asSharedFlow()
 
-    // 用于发送接收到消息的 SharedFlow
-    private val _receivedMessages = MutableSharedFlow<String>()
-    val receivedMessages: SharedFlow<String> = _receivedMessages.asSharedFlow()
+    private var clientScope = CoroutineScope(Dispatchers.IO) // 初始作用域
 
-    private var receiveJob: Job? = null // 用于持有数据接收协程的引用
+    @SuppressLint("MissingPermission")
+    fun connectToServer(
+        device: BluetoothDevice,
+        //onMessageReceived: (String) -> Unit,
+        onConnected: () -> Unit,
+        onDisconnected: () -> Unit,
+        onFailed: (String) -> Unit
+    ) {
+        val adapter = bluetoothAdapter
 
-    companion object {
-        private const val TAG = "BluetoothClient"
-        // 标准的蓝牙串行端口配置文件 (SPP) UUID
-        private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
-    }
-
-    /**
-     * 检查是否已授予 BLUETOOTH_CONNECT 权限。
-     * @return 如果权限已授予则返回 true，否则返回 false。
-     */
-    private fun hasBluetoothConnectPermission(): Boolean {
-        return ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.BLUETOOTH_CONNECT
-        ) == PackageManager.PERMISSION_GRANTED
-    }
-
-    /**
-     * 获取已配对设备的列表。
-     * 需要 BLUETOOTH_CONNECT 权限。
-     * @return 已配对的 BluetoothDevice 列表，如果蓝牙不可用或权限不足则返回空列表。
-     */
-    @SuppressLint("MissingPermission") // 该方法内部涉及 BLUETOOTH_CONNECT 权限操作，已在方法内部逻辑中处理权限检查
-    fun getPairedDevices(): List<BluetoothDevice> {
-        // 使用 let 块安全地处理可空 BluetoothAdapter
-        val adapter = bluetoothAdapter ?: run {
-            Log.e(TAG, "设备不支持蓝牙。")
-            return emptyList()
-        }
-
-        if (!hasBluetoothConnectPermission()) {
-            Log.e(TAG, "获取配对设备失败：缺少 BLUETOOTH_CONNECT 权限。")
-            return emptyList()
-        }
-        return adapter.bondedDevices.toList()
-    }
-
-    /**
-     * 连接到指定的蓝牙设备。
-     * 这是一个挂起函数，因为它执行耗时的网络操作。
-     * 需要 BLUETOOTH_CONNECT 权限。
-     * @param device 要连接的 BluetoothDevice 对象。
-     * @return 连接成功则返回 true，否则返回 false。
-     */
-    @SuppressLint("MissingPermission") // 该方法内部涉及 BLUETOOTH_CONNECT 权限操作，已在方法内部逻辑中处理权限检查
-    suspend fun connectToServer(device: BluetoothDevice): Boolean {
-        if (!hasBluetoothConnectPermission()) {
-            Log.e(TAG, "连接失败：缺少 BLUETOOTH_CONNECT 权限。")
-            return false
-        }
-        // 使用 let 块安全地处理可空 BluetoothAdapter
-        if (bluetoothAdapter?.isEnabled == false) {
-            Log.e(TAG, "连接失败：蓝牙未启用。")
-            return false
-        }
-
-        updateConnectionState(ConnectionState.Connecting)
-        closeConnection() // 确保在尝试新连接前关闭旧连接
-
-        return withContext(Dispatchers.IO) {
-            try {
-                bluetoothSocket = device.createRfcommSocketToServiceRecord(SPP_UUID)
-                bluetoothSocket?.connect() // 阻塞调用，直到连接成功或失败
-
-                outputStream = bluetoothSocket?.outputStream
-                startReceivingData() // 连接成功后启动数据接收
-
-                // Log.d(TAG, ...) 中的 device.name 访问也需要 BLUETOOTH_CONNECT 权限，
-                // 但已通过方法声明上的 @SuppressLint 处理。
-                Log.d(TAG, "成功连接到服务器：${device.name}")
-                updateConnectionState(ConnectionState.Connected)
-                true
-            } catch (e: IOException) {
-                Log.e(TAG, "连接失败：${e.message}", e)
-                updateConnectionState(ConnectionState.Failed)
-                closeConnection()
-                false
-            }
-        }
-    }
-
-    /**
-     * 启动一个协程以持续接收来自蓝牙服务器的数据。
-     * 接收到的数据会通过 `_receivedMessages` Flow 发送。
-     */
-    private fun startReceivingData() {
-        receiveJob?.cancel() // 如果接收协程已在运行，先取消它以避免重复
-
-        receiveJob = clientScope.launch {
-            bluetoothSocket?.inputStream?.bufferedReader()?.use { reader ->
-                try {
-                    while (true) {
-                        val receivedMessage = reader.readLine()
-                        if (receivedMessage != null) {
-                            Log.d(TAG, "接收到数据：$receivedMessage")
-                            _receivedMessages.emit(receivedMessage) // 发送消息到 Flow
-                        } else {
-                            // 服务器断开连接或发送结束
-                            Log.d(TAG, "服务器断开连接或发送结束。")
-                            break
-                        }
-                    }
-                } catch (e: IOException) {
-                    Log.e(TAG, "接收数据时发生错误：${e.message}", e)
-                } finally {
-                    // 接收结束或出错，关闭连接
-                    closeConnection()
-                }
-            }
-        }
-    }
-
-    /**
-     * 发送数据到已连接的蓝牙设备。
-     * 会在消息末尾添加换行符以方便读取。
-     * @param message 要发送的字符串数据。
-     */
-    fun sendData(message: String) {
-        if (outputStream == null) {
-            Log.e(TAG, "发送数据失败：输出流未初始化或连接未建立。")
+        if (adapter == null || !adapter.isEnabled) {
+            val msg = "蓝牙不可用或未启用。"
+            Log.e("BluetoothClient", msg)
+            onFailed(msg)
             return
         }
+
+        Log.d("BluetoothClient", "Closing BluetoothClient resources...")
+        // 在尝试新连接前，先关闭旧连接，确保资源干净
+        close() // 确保旧资源已关闭，这会关闭旧的 sendChannel
+
+        Log.d("BluetoothClient", "连接：旧资源已关闭，准备尝试新连接。目标设备: ${device.name ?: device.address}")
+
+        // 重新初始化作用域以取消之前的任务，并为新连接准备
+        clientScope = CoroutineScope(Dispatchers.IO)
+
+        // !!! 在这里重新创建 sendChannel !!!
+        sendChannel = Channel(Channel.UNLIMITED) // <<<<<<< 添加或修改这一行
+
         clientScope.launch {
             try {
-                withContext(Dispatchers.IO) {
-                    outputStream?.write((message + "\n").toByteArray()) // 添加换行符
-                    outputStream?.flush()
-                    Log.d(TAG, "发送数据：$message")
+                val uuid = UUID.fromString(SERVICE_UUID)
+                Log.d("BluetoothClient", "尝试创建RFCOMM socket，UUID: $uuid")
+                mmSocket = device.createInsecureRfcommSocketToServiceRecord(uuid)
+
+                if (adapter.isDiscovering) {
+                    adapter.cancelDiscovery()
+                    Log.d("BluetoothClient", "已取消正在进行的蓝牙发现。")
                 }
+
+                Log.d("BluetoothClient", "尝试连接到服务端...")
+                mmSocket?.connect()
+                Log.d("BluetoothClient", "成功连接到服务端！")
+
+                withContext(Dispatchers.Main) {
+                    onConnected()
+                }
+
+                mmInputStream = mmSocket?.inputStream
+                mmOutputStream = mmSocket?.outputStream
+
+                if (mmInputStream != null && mmOutputStream != null) {
+                    Log.d("BluetoothClient", "已获取输入输出流，开始监听消息。")
+                    // 启动接收消息的协程
+                    val listenJob = listenForMessages()
+                    // 启动发送消息的协程
+                    val sendJob = sendMessages() // 此时 sendChannel 已经是新的、开放状态
+
+                    // 等待其中一个任务完成（通常是监听任务因断开连接而结束）
+                    listenJob.join()
+                    Log.d("BluetoothClient", "监听协程已结束，假定连接已断开。")
+
+                } else {
+                    val msg = "连接成功但无法获取输入输出流。"
+                    Log.e("BluetoothClient", msg)
+                    withContext(Dispatchers.Main) { onFailed(msg) }
+                }
+
             } catch (e: IOException) {
-                Log.e(TAG, "数据发送失败：${e.message}", e)
-                updateConnectionState(ConnectionState.Failed)
-                closeConnection()
+                val errorMessage = "连接失败或连接断开: IOException: ${e.message}"
+                Log.e("BluetoothClient", errorMessage, e)
+                withContext(Dispatchers.Main) { onFailed(errorMessage) }
+            } catch (e: SecurityException) {
+                val errorMessage = "连接失败: 缺少蓝牙权限: ${e.message}"
+                Log.e("BluetoothClient", errorMessage, e)
+                withContext(Dispatchers.Main) { onFailed(errorMessage) }
+            } catch (e: Exception) {
+                val errorMessage = "连接失败: 未知错误: ${e.message}"
+                Log.e("BluetoothClient", errorMessage, e)
+                withContext(Dispatchers.Main) { onFailed(errorMessage) }
+            } finally {
+                Log.d("BluetoothClient", "主连接协程结束，调用onDisconnected并清理资源。")
+                withContext(Dispatchers.Main) { onDisconnected() }
+                closeResources()
             }
         }
     }
 
     /**
-     * 更新连接状态的内部函数。
-     * @param state 要设置的新连接状态。
+     * 用于持续监听来自服务器的消息。
+     * 当连接断开或读取失败时，会抛出IOException，导致此协程结束。
      */
-    private fun updateConnectionState(state: ConnectionState) {
-        _connectionState.value = state
-        Log.d(TAG, "连接状态更新: $state")
+    private fun listenForMessages() = clientScope.launch {
+        val buffer = ByteArray(1024)
+        var bytes: Int
+        try {
+            while (mmInputStream != null && clientScope.isActive) {
+                bytes = mmInputStream!!.read(buffer)
+                if (bytes > 0) {
+                    val receivedMessage = String(buffer, 0, bytes)
+                    Log.d("BluetoothClient", "收到消息: $receivedMessage")
+                    withContext(Dispatchers.Main) {
+                        _messageReceived.emit(receivedMessage) // 使用SharedFlow发送消息
+                        Log.d("BluetoothClient_Flow", "消息已通过SharedFlow发出: $receivedMessage")
+                    }
+                } else if (bytes == -1) {
+                    // Stream closed/end of stream
+                    Log.d("BluetoothClient", "输入流已结束，连接可能已断开。")
+                    break
+                }
+            }
+        } catch (e: IOException) {
+            Log.e("BluetoothClient", "读取消息时断开连接: ${e.message}", e)
+        } catch (e: Exception) {
+            Log.e("BluetoothClient", "读取消息时发生未知错误: ${e.message}", e)
+        }
+        // finally 块不再调用 close()，由主连接协程或外部管理
+        Log.d("BluetoothClient", "listenForMessages 协程结束。")
     }
 
     /**
-     * 关闭所有蓝牙连接相关的资源。
-     * 实现了 [Closeable] 接口，可以在 `use` 块中调用。
+     * 用于通过通道发送数据。
      */
-    override fun close() {
-        closeConnection()
+    fun sendData(message: String) {
+        // 只有当通道开放且作用域活跃时才发送
+        if (clientScope.isActive && !sendChannel.isClosedForSend) {
+            clientScope.launch {
+                try {
+                    // --- 在这里进行修改 ---
+                    sendChannel.send((message + "\n").toByteArray()) // <<< 在这里添加换行符
+                    Log.d("BluetoothClient", "数据已放入发送通道: ${message}")
+                } catch (e: ClosedSendChannelException) {
+                    Log.e("BluetoothClient", "发送数据失败: 通道已关闭", e)
+                } catch (e: Exception) {
+                    Log.e("BluetoothClient", "发送数据到通道失败: ${e.message}", e)
+                }
+            }
+        } else {
+            Log.w("BluetoothClient", "无法发送数据：连接未激活或通道已关闭。")
+        }
     }
 
     /**
-     * 安全地关闭所有蓝牙连接相关的资源。
-     * 关闭输入/输出流、蓝牙 Socket，并取消相关的协程。
+     * 用于从发送通道读取数据并写入输出流。
      */
-    fun closeConnection() {
-        receiveJob?.cancel() // 取消数据接收协程
-        receiveJob = null
-
+    private fun sendMessages() = clientScope.launch {
         try {
-            outputStream?.close()
-            outputStream = null
+            // 这个循环会在 sendChannel 开启时正常运行
+            for (bytes in sendChannel) {
+                if (mmOutputStream != null && clientScope.isActive) {
+                    mmOutputStream!!.write(bytes)
+                    mmOutputStream!!.flush()
+                    Log.d("BluetoothClient", "已发送数据: ${String(bytes)}")
+                } else {
+                    Log.w("BluetoothClient", "输出流为空或协程不活跃，无法发送数据。")
+                    break
+                }
+            }
         } catch (e: IOException) {
-            Log.e(TAG, "关闭输出流时出错：${e.message}", e)
+            Log.e("BluetoothClient", "发送数据时断开连接: ${e.message}", e)
+        } catch (e: Exception) {
+            Log.e("BluetoothClient", "发送数据时发生未知错误: ${e.message}", e)
         }
+        Log.d("BluetoothClient", "sendMessages 协程结束。")
+    }
 
+
+    /**
+     * 关闭客户端的蓝牙连接和资源。
+     * 这是外部调用的方法，用于彻底终止连接。
+     */
+    fun close() {
+        Log.d("BluetoothClient", "External close() called, cancelling client scope...")
+        clientScope.cancel() // 取消所有子协程
+        closeResources() // 清理资源
+    }
+
+    /**
+     * 内部方法，用于安全地关闭输入输出流和 Socket。
+     * 不会取消 CoroutineScope。
+     */
+    private fun closeResources() {
+        Log.d("BluetoothClient", "Closing BluetoothClient resources...")
         try {
-            bluetoothSocket?.close()
-            bluetoothSocket = null
+            // 确保 sendChannel 在这里被关闭，以便 sendMessages 协程可以完成其循环
+            if (!sendChannel.isClosedForSend) {
+                sendChannel.close()
+            }
+            mmOutputStream?.close()
+            mmInputStream?.close()
+            mmSocket?.close()
+            Log.d("BluetoothClient", "BluetoothClient 资源已成功关闭。")
         } catch (e: IOException) {
-            Log.e(TAG, "关闭蓝牙 Socket 时出错：${e.message}", e)
+            Log.e("BluetoothClient", "关闭客户端 Socket 时发生 IOException: ${e.message}", e)
+        } catch (e: Exception) {
+            Log.e("BluetoothClient", "关闭客户端资源时发生未知错误: ${e.message}", e)
+        } finally {
+            mmSocket = null
+            mmInputStream = null
+            mmOutputStream = null
         }
-        updateConnectionState(ConnectionState.Disconnected)
-        Log.d(TAG, "连接已关闭。")
     }
 }

@@ -15,7 +15,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         // 初始化蓝牙权限管理器
-        // 传递当前 Activity 的上下文、ActivityResultRegistry 和生命周期所有者
         bluetoothPermissionManager = BluetoothPermissionManager(
             this, // Activity context
             activityResultRegistry, // ComponentActivity 提供的注册器
@@ -28,13 +27,8 @@ class MainActivity : ComponentActivity() {
 
         // 设置 Compose UI 内容
         setContent {
-            // 从蓝牙权限管理器获取权限状态，并传递给 UI
-            BluetoothTestScreen(
-                hasBluetoothScanPermission = bluetoothPermissionManager.hasBluetoothScanPermission.value,
-                hasBluetoothConnectPermission = bluetoothPermissionManager.hasBluetoothConnectPermission.value
-                // 如果您的 BluetoothTestScreen 还需要位置权限的状态，可以也传递过去
-                // hasFineLocationPermission = bluetoothPermissionManager.hasFineLocationPermission.value
-            )
+            // <--- 修正这里：向 BluetoothTestScreen 传递 permissionManager
+            BluetoothTestScreen(bluetoothPermissionManager = bluetoothPermissionManager)
         }
     }
 }

@@ -31,12 +31,12 @@ class BluetoothPermissionManager(
     // 蓝牙连接权限的 Compose 状态
     private val _hasBluetoothConnectPermission = mutableStateOf(false)
     // 精确位置权限的 Compose 状态 (对于旧版本蓝牙扫描很重要)
-    private val _hasFineLocationPermission = mutableStateOf(false)
+    private val _hasFineLocationPermission = mutableStateOf(false) // 明确代表 ACCESS_FINE_LOCATION
 
     // 提供只读属性，供 UI 观察权限状态
     val hasBluetoothScanPermission: State<Boolean> = _hasBluetoothScanPermission
     val hasBluetoothConnectPermission: State<Boolean> = _hasBluetoothConnectPermission
-    val hasFineLocationPermission: State<Boolean> = _hasFineLocationPermission
+    val hasFineLocationPermission: State<Boolean> = _hasFineLocationPermission // 明确暴露位置权限状态
 
     // 注册权限请求的 Launcher
     private val requestBluetoothPermissionsLauncher: ActivityResultLauncher<Array<String>> =
@@ -58,19 +58,19 @@ class BluetoothPermissionManager(
         if (permissionsToRequest.isNotEmpty()) {
             requestBluetoothPermissionsLauncher.launch(permissionsToRequest.toTypedArray())
         } else {
-            // 所有权限都已存在，更新状态为 true
+            // 所有必要的权限都已存在，更新状态
             updateBluetoothPermissionStates(
-                scanGranted = true,
-                connectGranted = true,
-                // 对于 API 31+，ACCESS_FINE_LOCATION 默认为 true (因为它不强制要求)
-                // 对于旧版本，需要根据实际检查结果来更新
-                fineLocationGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    true
+                scanGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    hasPermission(Manifest.permission.BLUETOOTH_SCAN)
                 } else {
+                    // 对于旧版本，如果走到这里，说明细致位置权限可能已授予，或 BLUETOOTH/BLUETOOTH_ADMIN 已存在
+                    // 蓝牙扫描功能需要细致位置权限，所以这里依赖其状态
                     hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)
-                }
+                },
+                connectGranted = hasPermission(Manifest.permission.BLUETOOTH_CONNECT), // API 31+
+                fineLocationGranted = hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)
             )
-            showToast("蓝牙权限已存在")
+            showToast("所有蓝牙相关权限已存在")
         }
     }
 
@@ -94,7 +94,7 @@ class BluetoothPermissionManager(
             //     permissionsNeeded.add(Manifest.permission.BLUETOOTH_ADVERTISE)
             // }
         } else {
-            // 对于旧版本 (API 30 及以下)，蓝牙扫描通常需要位置权限
+            // 对于旧版本 (API 30 及以下)，蓝牙扫描强制需要位置权限
             if (!hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)) {
                 permissionsNeeded.add(Manifest.permission.ACCESS_FINE_LOCATION)
             }
@@ -112,26 +112,38 @@ class BluetoothPermissionManager(
     private fun handleBluetoothPermissionResults(permissions: Map<String, Boolean>) {
         val scanGranted = permissions.getOrDefault(Manifest.permission.BLUETOOTH_SCAN, false)
         val connectGranted = permissions.getOrDefault(Manifest.permission.BLUETOOTH_CONNECT, false)
-        // 位置权限的授予状态，如果未请求（如 API 31+ 且不需要位置），则默认为 true
-        val fineLocationGranted = permissions.getOrDefault(Manifest.permission.ACCESS_FINE_LOCATION, true)
+        // 明确获取位置权限的授予状态
+        val fineLocationGranted = permissions.getOrDefault(Manifest.permission.ACCESS_FINE_LOCATION, false)
+
 
         updateBluetoothPermissionStates(scanGranted, connectGranted, fineLocationGranted)
 
-        if (scanGranted && connectGranted && fineLocationGranted) { // 检查所有必要权限
-            showToast("蓝牙权限已授予")
+        // 根据实际授予的权限给出提示
+        val grantedPermissions = permissions.filterValues { it }.keys
+        if (grantedPermissions.isEmpty()) {
+            showToast("所有蓝牙相关权限均被拒绝", Toast.LENGTH_LONG)
+        } else if (getMissingBluetoothPermissions().isEmpty()) { // 如果现在所有必需权限都已满足
+            showToast("所有蓝牙相关权限已授予", Toast.LENGTH_SHORT)
         } else {
-            showToast("蓝牙权限未完全授予，部分功能可能无法使用", Toast.LENGTH_LONG)
+            showToast("部分蓝牙相关权限未授予，部分功能可能无法使用", Toast.LENGTH_LONG)
         }
     }
 
     /**
      * 更新蓝牙权限的内部状态。
-     * @param scanGranted 蓝牙扫描权限是否已授予。
+     * @param scanGranted 蓝牙扫描权限（API 31+ 为 BLUETOOTH_SCAN，否则为旧版本中的扫描相关权限概念）是否已授予。
      * @param connectGranted 蓝牙连接权限是否已授予。
-     * @param fineLocationGranted 精确位置权限是否已授予。
+     * @param fineLocationGranted 精确位置权限（ACCESS_FINE_LOCATION）是否已授予。
      */
     private fun updateBluetoothPermissionStates(scanGranted: Boolean, connectGranted: Boolean, fineLocationGranted: Boolean) {
-        _hasBluetoothScanPermission.value = scanGranted
+        // 对于 API 31+ 设备，蓝牙扫描权限就是 BLUETOOTH_SCAN
+        // 对于旧版本设备，蓝牙扫描功能依赖 ACCESS_FINE_LOCATION，所以这里将 _hasBluetoothScanPermission
+        // 关联到 _hasFineLocationPermission 以便 BluetoothTestScreen 正确观察扫描条件
+        _hasBluetoothScanPermission.value = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            scanGranted
+        } else {
+            fineLocationGranted // 旧版本扫描依赖精确位置
+        }
         _hasBluetoothConnectPermission.value = connectGranted
         _hasFineLocationPermission.value = fineLocationGranted
     }
