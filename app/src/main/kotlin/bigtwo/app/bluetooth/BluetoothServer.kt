@@ -13,7 +13,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.os.Build // <--- 导入 Build 类
+import android.os.Build
 import android.util.Log
 import android.widget.Toast
 import androidx.core.content.ContextCompat
@@ -22,7 +22,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,7 +31,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext // <--- withContext 仍然需要，但使用方式不同
+import kotlinx.coroutines.withContext
 import java.io.Closeable
 import java.io.IOException
 import java.util.Collections
@@ -47,12 +46,14 @@ class BluetoothServer(private val context: Context) : Closeable {
     }
 
     private val bluetoothAdapter: BluetoothAdapter? by lazy {
-        val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        val bluetoothManager =
+            context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothManager.adapter
     }
 
     private var serverSocket: BluetoothServerSocket? = null
-    private val connectedClients: MutableMap<String, ClientConnection> = Collections.synchronizedMap(mutableMapOf())
+    private val connectedClients: MutableMap<String, ClientConnection> =
+        Collections.synchronizedMap(mutableMapOf())
 
     private val serverScope = CoroutineScope(
         Dispatchers.IO + SupervisorJob() + CoroutineExceptionHandler { _, throwable ->
@@ -78,7 +79,10 @@ class BluetoothServer(private val context: Context) : Closeable {
                 BluetoothDevice.ACTION_FOUND -> {
                     val device: BluetoothDevice? =
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // <--- 修正：使用 TIRAMISU (API 33)
-                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                            intent.getParcelableExtra(
+                                BluetoothDevice.EXTRA_DEVICE,
+                                BluetoothDevice::class.java
+                            )
                         } else {
                             @Suppress("DEPRECATION") // <--- 修正：抑制弃用警告
                             intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
@@ -90,10 +94,12 @@ class BluetoothServer(private val context: Context) : Closeable {
                         }
                     }
                 }
+
                 BluetoothAdapter.ACTION_DISCOVERY_STARTED -> {
                     _isDiscovering.value = true
                     Log.d(TAG, "蓝牙设备发现已开始。")
                 }
+
                 BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
                     _isDiscovering.value = false
                     Log.d(TAG, "蓝牙设备发现已结束。")
@@ -131,7 +137,8 @@ class BluetoothServer(private val context: Context) : Closeable {
         if (!hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) {
             Log.e(TAG, "启动服务器失败：BLUETOOTH_CONNECT 权限未授予。")
             withContext(Dispatchers.Main) { // 确保在协程中调用
-                Toast.makeText(context, "启动服务器失败：蓝牙连接权限未授予", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "启动服务器失败：蓝牙连接权限未授予", Toast.LENGTH_SHORT)
+                    .show()
             }
             return
         }
@@ -151,7 +158,8 @@ class BluetoothServer(private val context: Context) : Closeable {
         delay(delayMillis) // 确保资源被释放，避免端口冲突
 
         try {
-            serverSocket = bluetoothAdapter?.listenUsingRfcommWithServiceRecord(SERVER_NAME, APP_UUID)
+            serverSocket =
+                bluetoothAdapter?.listenUsingRfcommWithServiceRecord(SERVER_NAME, APP_UUID)
             Log.i(TAG, "服务器启动，等待客户端连接...")
             Log.d(TAG, "服务器：新 serverSocket 实例已创建。UUID: $APP_UUID")
 
@@ -169,15 +177,27 @@ class BluetoothServer(private val context: Context) : Closeable {
                         }
                         null
                     } catch (se: SecurityException) {
-                        Log.e(TAG, "服务器：SecurityException：未授予 BLUETOOTH_CONNECT 权限，无法 accept()。", se)
+                        Log.e(
+                            TAG,
+                            "服务器：SecurityException：未授予 BLUETOOTH_CONNECT 权限，无法 accept()。",
+                            se
+                        )
                         withContext(Dispatchers.Main) { // 确保在协程中调用
-                            Toast.makeText(context, "权限不足，服务器无法接受连接", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(
+                                context,
+                                "权限不足，服务器无法接受连接",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
                         null
                     } catch (ce: Exception) {
                         Log.e(TAG, "服务器：serverSocket.accept() 发生未知异常：${ce.message}", ce)
                         withContext(Dispatchers.Main) { // 确保在协程中调用
-                            Toast.makeText(context, "服务器接受连接发生未知错误: ${ce.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(
+                                context,
+                                "服务器接受连接发生未知错误: ${ce.localizedMessage}",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
                         null
                     }
@@ -194,14 +214,23 @@ class BluetoothServer(private val context: Context) : Closeable {
                             onClientDisconnected = { disconnectedClientId ->
                                 connectedClients.remove(disconnectedClientId)
                                 onClientDisconnected(disconnectedClientId)
-                                Log.i(TAG, "客户端 [$disconnectedClientId] 已从连接列表中移除。当前连接数: ${connectedClients.size}")
+                                Log.i(
+                                    TAG,
+                                    "客户端 [$disconnectedClientId] 已从连接列表中移除。当前连接数: ${connectedClients.size}"
+                                )
                             }
                         )
                         connectedClients[clientConnection.clientId] = clientConnection
                         withContext(Dispatchers.Main) {
-                            onClientConnected(clientConnection.clientId, clientConnection.clientName)
+                            onClientConnected(
+                                clientConnection.clientId,
+                                clientConnection.clientName
+                            )
                         }
-                        Log.i(TAG, "客户端 [${clientConnection.clientId}] 已连接。当前连接数: ${connectedClients.size}")
+                        Log.i(
+                            TAG,
+                            "客户端 [${clientConnection.clientId}] 已连接。当前连接数: ${connectedClients.size}"
+                        )
                     } else {
                         Log.d(TAG, "服务器：accept() 返回 null。")
                     }
@@ -212,7 +241,8 @@ class BluetoothServer(private val context: Context) : Closeable {
             Log.e(TAG, "服务器启动失败（listenUsingRfcommWithServiceRecord）：${e.message}", e)
             serverScope.launch { close() } // 启动一个协程来清理
             withContext(Dispatchers.Main) { // 确保在协程中调用
-                Toast.makeText(context, "服务器启动失败: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "服务器启动失败: ${e.localizedMessage}", Toast.LENGTH_LONG)
+                    .show()
             }
         }
     }
@@ -236,7 +266,11 @@ class BluetoothServer(private val context: Context) : Closeable {
         connectedClients[clientId]?.sendData(data) ?: run {
             Log.w(TAG, "未找到客户端 [$clientId] 或已断开连接，无法发送数据。")
             serverScope.launch(Dispatchers.Main) { // <--- 修正
-                Toast.makeText(context, "未找到客户端或已断开连接，无法发送数据。", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    context,
+                    "未找到客户端或已断开连接，无法发送数据。",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
         }
     }
@@ -246,7 +280,8 @@ class BluetoothServer(private val context: Context) : Closeable {
         if (!hasPermission(Manifest.permission.BLUETOOTH_SCAN)) {
             Log.e(TAG, "开始发现失败：BLUETOOTH_SCAN 权限未授予。")
             withContext(Dispatchers.Main) { // 确保在协程中调用
-                Toast.makeText(context, "开始发现失败：蓝牙扫描权限未授予。", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "开始发现失败：蓝牙扫描权限未授予。", Toast.LENGTH_SHORT)
+                    .show()
             }
             return
         }

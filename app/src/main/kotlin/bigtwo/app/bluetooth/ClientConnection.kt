@@ -10,13 +10,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.isActive // <--- 确保导入这个，虽然在这里不直接用
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStream
-import java.io.InputStreamReader
 import java.io.OutputStream
 
 /**
@@ -54,7 +52,11 @@ class ClientConnection(
         CoroutineScope(
             Dispatchers.IO + SupervisorJob() + CoroutineExceptionHandler { context, throwable ->
                 // <--- 修正这里：CoroutineExceptionHandler 的 lambda 参数是 CoroutineContext 和 Throwable
-                Log.e(TAG, "ClientConnection[$clientId] Coroutine failed: ${throwable.message}", throwable)
+                Log.e(
+                    TAG,
+                    "ClientConnection[$clientId] Coroutine failed: ${throwable.message}",
+                    throwable
+                )
                 // 在 CoroutineExceptionHandler 中，我们需要明确引用 connectionScope
                 // 如果 connectionScope 仍然活跃，则尝试启动一个协程来关闭连接
                 if (connectionScope.isActive) { // <--- 修正这里：使用 connectionScope.isActive
@@ -62,7 +64,10 @@ class ClientConnection(
                         try {
                             close() // 调用 suspend 函数
                         } catch (e: Exception) {
-                            Log.e(TAG, "Error during closing ClientConnection from exception handler: ${e.message}")
+                            Log.e(
+                                TAG,
+                                "Error during closing ClientConnection from exception handler: ${e.message}"
+                            )
                         }
                     }
                 }
@@ -111,12 +116,18 @@ class ClientConnection(
                     while (isActive) { // 这里使用当前协程的 isActive
                         receivedMessage = withContext(Dispatchers.IO) { reader.readLine() }
                         if (receivedMessage != null) {
-                            Log.d(TAG, "ClientConnection[$clientId]：成功接收到数据：$receivedMessage")
+                            Log.d(
+                                TAG,
+                                "ClientConnection[$clientId]：成功接收到数据：$receivedMessage"
+                            )
                             withContext(Dispatchers.Main) {
                                 onMessageReceived(receivedMessage, clientId)
                             }
                         } else {
-                            Log.d(TAG, "ClientConnection[$clientId]：InputStream readLine() 返回 null，客户端可能已断开连接。")
+                            Log.d(
+                                TAG,
+                                "ClientConnection[$clientId]：InputStream readLine() 返回 null，客户端可能已断开连接。"
+                            )
                             break
                         }
                     }

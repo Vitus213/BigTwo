@@ -9,9 +9,9 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.isActive
@@ -21,8 +21,9 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.UUID
-import kotlinx.coroutines.channels.ClosedSendChannelException // <<<< 添加这一行
-private const val SERVICE_UUID = "00001101-0000-1000-8000-00805f9b34fb" // <-- 确保这里和服务端一致，如果之前更换过自定义UUID，请用您自定义的
+
+private const val SERVICE_UUID =
+    "00001101-0000-1000-8000-00805f9b34fb" // <-- 确保这里和服务端一致，如果之前更换过自定义UUID，请用您自定义的
 
 class BluetoothClient(private val context: Context) {
 
@@ -63,7 +64,10 @@ class BluetoothClient(private val context: Context) {
         // 在尝试新连接前，先关闭旧连接，确保资源干净
         close() // 确保旧资源已关闭，这会关闭旧的 sendChannel
 
-        Log.d("BluetoothClient", "连接：旧资源已关闭，准备尝试新连接。目标设备: ${device.name ?: device.address}")
+        Log.d(
+            "BluetoothClient",
+            "连接：旧资源已关闭，准备尝试新连接。目标设备: ${device.name ?: device.address}"
+        )
 
         // 重新初始化作用域以取消之前的任务，并为新连接准备
         clientScope = CoroutineScope(Dispatchers.IO)

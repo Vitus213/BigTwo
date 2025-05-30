@@ -8,8 +8,8 @@ import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 
@@ -28,8 +28,10 @@ class BluetoothPermissionManager(
 ) {
     // 蓝牙扫描权限的 Compose 状态
     private val _hasBluetoothScanPermission = mutableStateOf(false)
+
     // 蓝牙连接权限的 Compose 状态
     private val _hasBluetoothConnectPermission = mutableStateOf(false)
+
     // 精确位置权限的 Compose 状态 (对于旧版本蓝牙扫描很重要)
     private val _hasFineLocationPermission = mutableStateOf(false) // 明确代表 ACCESS_FINE_LOCATION
 
@@ -113,7 +115,8 @@ class BluetoothPermissionManager(
         val scanGranted = permissions.getOrDefault(Manifest.permission.BLUETOOTH_SCAN, false)
         val connectGranted = permissions.getOrDefault(Manifest.permission.BLUETOOTH_CONNECT, false)
         // 明确获取位置权限的授予状态
-        val fineLocationGranted = permissions.getOrDefault(Manifest.permission.ACCESS_FINE_LOCATION, false)
+        val fineLocationGranted =
+            permissions.getOrDefault(Manifest.permission.ACCESS_FINE_LOCATION, false)
 
 
         updateBluetoothPermissionStates(scanGranted, connectGranted, fineLocationGranted)
@@ -135,7 +138,11 @@ class BluetoothPermissionManager(
      * @param connectGranted 蓝牙连接权限是否已授予。
      * @param fineLocationGranted 精确位置权限（ACCESS_FINE_LOCATION）是否已授予。
      */
-    private fun updateBluetoothPermissionStates(scanGranted: Boolean, connectGranted: Boolean, fineLocationGranted: Boolean) {
+    private fun updateBluetoothPermissionStates(
+        scanGranted: Boolean,
+        connectGranted: Boolean,
+        fineLocationGranted: Boolean
+    ) {
         // 对于 API 31+ 设备，蓝牙扫描权限就是 BLUETOOTH_SCAN
         // 对于旧版本设备，蓝牙扫描功能依赖 ACCESS_FINE_LOCATION，所以这里将 _hasBluetoothScanPermission
         // 关联到 _hasFineLocationPermission 以便 BluetoothTestScreen 正确观察扫描条件
@@ -154,7 +161,10 @@ class BluetoothPermissionManager(
      * @return 如果权限已授予则返回 `true`，否则返回 `false`。
      */
     private fun hasPermission(permission: String): Boolean {
-        return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+        return ContextCompat.checkSelfPermission(
+            context,
+            permission
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
     /**
