@@ -19,5 +19,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "BigTwo"
+rootProject.name = "My Application"
 include(":app")
+ 
