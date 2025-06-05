@@ -19,6 +19,7 @@ import com.example.myapplication.ui.theme.MyApplicationTheme
 import android.content.Intent
 import androidx.compose.ui.platform.LocalContext
 import com.example.myapplication.bluetooth.BluetoothPermissionManager
+
 class MainActivity : ComponentActivity() {
 
     private lateinit var bluetoothPermissionManager: BluetoothPermissionManager
@@ -46,7 +47,8 @@ class MainActivity : ComponentActivity() {
                     ) {
                         val context = LocalContext.current
                         Button(onClick = {
-                            val intent = Intent(context, LobbyActivity::class.java)
+                            // 从 MainActivity 跳转到 RuleSelectionActivity
+                            val intent = Intent(context, RuleSelectionActivity::class.java)
                             context.startActivity(intent)}) {
                             Text("开始游戏")
                         }
@@ -71,4 +73,3 @@ fun GreetingPreview() {
         }
     }
 }
-

@@ -32,11 +32,12 @@ class GameManager(
     fun startNewGame() {
         // 初始化玩家
         players.clear()
-        players.add(Player(isHuman = true,name="玩家"))  // 人类玩家
-        repeat(3) { players.add(Player(isHuman = false,name="AI")) }  // AI玩家
+        players.add(Player(isHuman = true, name="玩家"))  // 人类玩家
+        repeat(3) { players.add(Player(isHuman = false, name="AI")) }  // AI玩家
         consecutivePassCount = 0
 
         previousHand = emptyList()
+        isFirstPlay = true  // 重置首回合标记
         (gameEventListener as? GameActivity)?.viewModel?.updateLastPlayedCards(emptyList())
 
         // 生成并洗牌
@@ -45,8 +46,14 @@ class GameManager(
         // 发牌
         dealCards(deck)
 
-        // 随机选择起始玩家
-        currentPlayerIndex = 0
+        // 寻找持有方块3的玩家作为起始玩家
+        val diamond3 = Card(Suit.DIAMONDS, Rank.THREE)
+        currentPlayerIndex = players.indexOfFirst { player ->
+            player.hasCard(diamond3)
+        }
+
+        println("持有方块3的玩家索引: $currentPlayerIndex")
+
         isGameRunning = true
 
         // 通知UI游戏开始
@@ -134,35 +141,45 @@ class GameManager(
         }
     }
 
+
+    private var isFirstPlay = true // 添加标记是否为首回合的变量
+
     private fun validatePlay(player: Player, cards: List<Card>): Boolean {
-        if(previousHand.isEmpty())
-        {
-            return true
+        // 首回合特殊规则：必须包含方块3
+        if (isFirstPlay) {
+            val diamond3 = Card(Suit.DIAMONDS, Rank.THREE)
+            if (!cards.contains(diamond3)) {
+                return false
+            }
+            // 验证牌型合法性
+            return isValidHand(cards)
         }
-        if(cards.isEmpty())
-        {
-            return true
+
+        // 非首回合规则
+        if (previousHand.isEmpty()) {
+            return isValidHand(cards)
         }
-        if(cards.size!=previousHand.size)
-        {
+        if (cards.isEmpty()) {
+            return true // 允许过牌
+        }
+        if (cards.size != previousHand.size) {
             return false
         }
-        if(compareHands(cards,previousHand)>0)
-        {
-            return true
-        }
-        return false
-        // 这里可以添加更多游戏规则验证
+        return compareHands(cards, previousHand) > 0 && isValidHand(cards)
     }
 
     private fun handleValidPlay(player: Player, cards: List<Card>) {
         previousHand = cards
-        player.playCards(previousHand)  // 从手牌中移除
+        player.playCards(previousHand)
         gameEventListener.onCardsPlayed(player, cards)
         consecutivePassCount = 0
 
+        if (isFirstPlay) {
+            isFirstPlay = false
+        }
+
         (gameEventListener as? GameActivity)?.viewModel?.updateLastPlayedCards(cards)
-        // 检查胜利条件
+
         if (player.handSize == 0) {
             endGame(player)
         }

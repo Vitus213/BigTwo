@@ -5,6 +5,7 @@ enum class HandType {
     // 五张牌型
     STRAIGHT_FLUSH, FOUR_OF_A_KIND, FULL_HOUSE, FLUSH, STRAIGHT,
     // 其他数量牌型
+    BOMB,  // 添加炸弹类型（四张）
     THREE_OF_A_KIND, PAIR, SINGLE
 }
 
@@ -16,14 +17,24 @@ data class HandResult(
 )
 
 // 评估单张、对子、三张、五张的牌型
+// 在 evaluateHand 函数中添加四张牌的支持
 fun evaluateHand(cards: List<Card>): HandResult {
     return when (cards.size) {
         1 -> evaluateSingle(cards)
         2 -> evaluatePair(cards)
         3 -> evaluateThreeOfAKind(cards)
+        4 -> evaluateBomb(cards)   // 添加四张牌的评估
         5 -> evaluateFiveCardHand(cards)
         else -> throw IllegalArgumentException("Unsupported number of cards: ${cards.size}")
     }
+}
+
+// 评估四张牌（炸弹）
+private fun evaluateBomb(cards: List<Card>): HandResult {
+    require(cards.size == 4)
+    require(cards.all { it.rank == cards[0].rank })
+    val maxSuit = cards.maxBy { it.suit }.suit
+    return HandResult(HandType.BOMB, cards[0].rank, maxSuit)
 }
 
 // 评估单张
@@ -118,29 +129,31 @@ private fun getStraightMaxRank(rankValues: List<Int>): Rank {
 }
 
 // 比较两手牌的大小
+// 修改 compareHands 函数以正确处理四张牌的比较
 fun compareHands(hand1: List<Card>, hand2: List<Card>): Int {
-    require(hand1.size == hand2.size ) { "Hands must have the same number of cards" }
+    require(hand1.size == hand2.size) { "Hands must have the same number of cards" }
 
     val result1 = evaluateHand(hand1)
     val result2 = evaluateHand(hand2)
-
-
-    // 五张牌型优先级顺序
-    val fiveCardOrder = listOf(
-        HandType.STRAIGHT_FLUSH,
-        HandType.FOUR_OF_A_KIND,
-        HandType.FULL_HOUSE,
-        HandType.FLUSH,
-        HandType.STRAIGHT
-    )
 
     return when (hand1.size) {
         1, 2, 3 -> {
             // 单张、对子、三张直接比较点数和花色
             compareBy<HandResult>({ it.rank.value }, { it.suit }).compare(result1, result2)
         }
+        4 -> {
+            // 四张牌（炸弹）比较点数和花色
+            compareBy<HandResult>({ it.rank.value }, { it.suit }).compare(result1, result2)
+        }
         5 -> {
-            // 先比较五张牌型优先级
+            // 五张牌型比较（保持不变）
+            val fiveCardOrder = listOf(
+                HandType.STRAIGHT_FLUSH,
+                HandType.FOUR_OF_A_KIND,
+                HandType.FULL_HOUSE,
+                HandType.FLUSH,
+                HandType.STRAIGHT
+            )
             val typeCompare = fiveCardOrder.indexOf(result1.type)
                 .compareTo(fiveCardOrder.indexOf(result2.type))
             if (typeCompare != 0) typeCompare
@@ -157,14 +170,21 @@ operator fun Suit.compareTo(other: Suit): Int {
 }
 
 // 验证牌型是否有效的方法
+// 在 isValidHand 函数中添加四张牌的支持
 fun isValidHand(cards: List<Card>): Boolean {
     return when (cards.size) {
         1 -> isValidSingle(cards)
         2 -> isValidPair(cards)
         3 -> isValidThreeOfAKind(cards)
+        4 -> isValidBomb(cards)   // 添加四张牌的验证
         5 -> isValidFiveCardHand(cards)
-        else -> false // 不支持其他数量的牌
+        else -> false
     }
+}
+
+// 验证四张牌（炸弹）：必须四张牌且点数相同
+private fun isValidBomb(cards: List<Card>): Boolean {
+    return cards.size == 4 && cards.all { it.rank == cards[0].rank }
 }
 
 // 验证单张牌（总是有效）

@@ -19,9 +19,6 @@
         </DropdownSelection>
         <DialogSelection />
       </SelectionState>
-      <SelectionState runConfigName="OnlineRoomPreview">
-        <option name="selectionMode" value="DROPDOWN" />
-      </SelectionState>
       <SelectionState runConfigName="OnlineRoomActivity">
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>

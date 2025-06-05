@@ -2,22 +2,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- ========= 合并所有权限声明 ========= -->
-    <!-- 位置权限 -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
-    <!-- 蓝牙基础权限 (Android 11 及以下) -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
 
-    <!-- Android 12+ 蓝牙权限 -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
-    <!-- 硬件特性声明 -->
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 
@@ -32,7 +27,13 @@
         android:theme="@style/Theme.MyApplication"
         tools:targetApi="31">
 
-        <!-- ========= Activity列表保持不变 ========= -->
+        <activity
+            android:name=".RuleSelectionActivity"
+            android:exported="false"
+            android:label="规则选择"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.MyApplication" />
+
         <activity
             android:name=".OnlineRoomActivity"
             android:exported="false"
@@ -72,12 +73,4 @@
         </activity>
     </application>
 
-    <!-- ========= 删除下列重复内容 =========
-        <uses-permission android:name="android.permission.BLUETOOTH" />
-        <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-        <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-        <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-        <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
-        <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    -->
 </manifest>
