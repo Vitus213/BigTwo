@@ -30,10 +30,21 @@ class GameManager(
     }
 
     fun startNewGame() {
+        // 获取难度设置
+        val difficulty = (gameEventListener as? GameActivity)?.intent?.getStringExtra("DIFFICULTY") ?: "NORMAL"
+
         // 初始化玩家
         players.clear()
-        players.add(Player(isHuman = true, name="玩家"))  // 人类玩家
-        repeat(3) { players.add(Player(isHuman = false, name="AI")) }  // AI玩家
+        players.add(Player(name="玩家", isHuman = true))  // 人类玩家
+        repeat(3) {
+            players.add(Player(
+                name = "AI",
+                isHuman = false,
+                difficulty = difficulty  // 传入难度参数
+            ))
+        }
+
+
         consecutivePassCount = 0
 
         previousHand = emptyList()
@@ -93,29 +104,30 @@ class GameManager(
 
     private fun processAITurn(player: Player) {
         coroutineScope.launch {
-            // AI思考延迟
-//            delay(500)
+            // 增加 AI "思考"时间
+            delay(1500) // AI 思考 1.5 秒
 
             println("ai思考中")
             println(previousHand)
             val playedCards = player.playCards(previousHand)
             println(playedCards)
+
             if (playedCards.isNotEmpty()) {
                 println("AI Player ${players.indexOf(player)} played: ${playedCards.joinToString()}")
                 handleValidPlay(player, playedCards)
             } else {
                 println("没有合法牌型")
                 consecutivePassCount++
-                if(consecutivePassCount==3)
-                {
+                if(consecutivePassCount==3) {
                     previousHand = emptyList()
                     consecutivePassCount=0
                 }
                 gameEventListener.onInvalidPlay(player)
             }
 
-            // 出牌展示延迟
-            delay(1000)
+            // 增加出牌展示时间，让玩家能看清 AI 出的牌
+            delay(2000) // 展示牌 2 秒
+
             proceedToNextPlayer()
         }
     }
