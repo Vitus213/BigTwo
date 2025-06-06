@@ -5,8 +5,10 @@ enum class HandType {
     // 五张牌型
     STRAIGHT_FLUSH, FOUR_OF_A_KIND, FULL_HOUSE, FLUSH, STRAIGHT,
     // 其他数量牌型
+
     BOMB,  // 添加炸弹类型（四张）
     THREE_OF_A_KIND, PAIR, SINGLE
+
 }
 
 // 牌型评估结果，包含类型、关键点数和花色
@@ -17,6 +19,7 @@ data class HandResult(
 )
 
 // 评估单张、对子、三张、五张的牌型
+
 // 在 evaluateHand 函数中添加四张牌的支持
 fun evaluateHand(cards: List<Card>): HandResult {
     return when (cards.size) {
@@ -35,6 +38,7 @@ private fun evaluateBomb(cards: List<Card>): HandResult {
     require(cards.all { it.rank == cards[0].rank })
     val maxSuit = cards.maxBy { it.suit }.suit
     return HandResult(HandType.BOMB, cards[0].rank, maxSuit)
+
 }
 
 // 评估单张
@@ -61,6 +65,7 @@ private fun evaluateThreeOfAKind(cards: List<Card>): HandResult {
 }
 
 // 评估五张牌型
+
 private fun evaluateFiveCardHand(cards: List<Card>): HandResult {
     require(cards.size == 5)
     val isFlush = cards.all { it.suit == cards[0].suit }
@@ -119,6 +124,7 @@ private fun checkStraight(rankValues: List<Int>): Boolean {
     }
 }
 
+
 // 获取顺子的最大点数
 private fun getStraightMaxRank(rankValues: List<Int>): Rank {
     return if (rankValues == listOf(1, 2, 3, 4, 5)) {
@@ -161,6 +167,7 @@ fun compareHands(hand1: List<Card>, hand2: List<Card>): Int {
         }
         else -> throw IllegalArgumentException("Unsupported hand size")
     }
+
 }
 
 // Suit比较（按题目顺序：方块 < 梅花 < 红桃 < 黑桃）
@@ -170,7 +177,9 @@ operator fun Suit.compareTo(other: Suit): Int {
 }
 
 // 验证牌型是否有效的方法
+
 // 在 isValidHand 函数中添加四张牌的支持
+
 fun isValidHand(cards: List<Card>): Boolean {
     return when (cards.size) {
         1 -> isValidSingle(cards)
@@ -187,6 +196,7 @@ private fun isValidBomb(cards: List<Card>): Boolean {
     return cards.size == 4 && cards.all { it.rank == cards[0].rank }
 }
 
+
 // 验证单张牌（总是有效）
 private fun isValidSingle(cards: List<Card>): Boolean {
     return cards.size == 1
@@ -199,16 +209,21 @@ private fun isValidPair(cards: List<Card>): Boolean {
 
 // 验证三张：必须三张牌且点数相同
 private fun isValidThreeOfAKind(cards: List<Card>): Boolean {
+
     return cards.size == 3 && cards.all { it.rank == cards[0].rank }
+
 }
 
 // 验证五张牌型
 private fun isValidFiveCardHand(cards: List<Card>): Boolean {
+
     if (cards.size != 5) return false
+
 
     val isFlush = cards.all { it.suit == cards[0].suit }
     val rankValues = cards.map { it.rank.value }.sorted()
     val isStraight = checkStraight(rankValues)
+
 
     // 检查同花顺
     if (isFlush && isStraight) return true
@@ -227,6 +242,7 @@ private fun isValidFiveCardHand(cards: List<Card>): Boolean {
 
     // 检查顺子
     if (isStraight) return true
+
 
     return false
 }

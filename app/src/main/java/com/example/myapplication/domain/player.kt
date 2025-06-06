@@ -2,17 +2,22 @@ package com.example.myapplication.domain
 
 import com.example.myapplication.ai.aiPlay
 import java.io.Serializable
+
 import com.example.myapplication.ai.HardAI
+
 
 class Player(
     val name: String,
     val isHuman: Boolean,
+
     val difficulty: String = "NORMAL",  // 添加难度属性
+
     private val hand: MutableList<Card> = mutableListOf()
 ) : Serializable {
 
     fun playCards(previousHand: List<Card>): List<Card> {
         return if (isHuman) {
+
             hand.removeAll(previousHand)
             emptyList()
         } else {
@@ -22,15 +27,13 @@ class Player(
                 else -> aiPlay(hand, previousHand)         // 使用简单 AI
             }
 
+
             if (cardsToPlay.isNotEmpty() && hand.containsAll(cardsToPlay)) {
                 hand.removeAll(cardsToPlay)
             }
             cardsToPlay
         }
     }
-
-
-
 
     fun getHand(): List<Card> = hand.toList()
 

@@ -47,8 +47,10 @@ class MainActivity : ComponentActivity() {
                     ) {
                         val context = LocalContext.current
                         Button(onClick = {
+
                             // 从 MainActivity 跳转到 RuleSelectionActivity
                             val intent = Intent(context, RuleSelectionActivity::class.java)
+
                             context.startActivity(intent)}) {
                             Text("开始游戏")
                         }
@@ -72,4 +74,6 @@ fun GreetingPreview() {
             }
         }
     }
+
 }
+

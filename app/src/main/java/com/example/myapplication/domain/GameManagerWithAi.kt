@@ -30,6 +30,7 @@ class GameManager(
     }
 
     fun startNewGame() {
+
         // 获取难度设置
         val difficulty = (gameEventListener as? GameActivity)?.intent?.getStringExtra("DIFFICULTY") ?: "NORMAL"
 
@@ -49,6 +50,7 @@ class GameManager(
 
         previousHand = emptyList()
         isFirstPlay = true  // 重置首回合标记
+
         (gameEventListener as? GameActivity)?.viewModel?.updateLastPlayedCards(emptyList())
 
         // 生成并洗牌
@@ -57,6 +59,7 @@ class GameManager(
         // 发牌
         dealCards(deck)
 
+
         // 寻找持有方块3的玩家作为起始玩家
         val diamond3 = Card(Suit.DIAMONDS, Rank.THREE)
         currentPlayerIndex = players.indexOfFirst { player ->
@@ -64,6 +67,7 @@ class GameManager(
         }
 
         println("持有方块3的玩家索引: $currentPlayerIndex")
+
 
         isGameRunning = true
 
@@ -104,14 +108,15 @@ class GameManager(
 
     private fun processAITurn(player: Player) {
         coroutineScope.launch {
+
             // 增加 AI "思考"时间
             delay(1500) // AI 思考 1.5 秒
+
 
             println("ai思考中")
             println(previousHand)
             val playedCards = player.playCards(previousHand)
             println(playedCards)
-
             if (playedCards.isNotEmpty()) {
                 println("AI Player ${players.indexOf(player)} played: ${playedCards.joinToString()}")
                 handleValidPlay(player, playedCards)
@@ -119,11 +124,13 @@ class GameManager(
                 println("没有合法牌型")
                 consecutivePassCount++
                 if(consecutivePassCount==3) {
+
                     previousHand = emptyList()
                     consecutivePassCount=0
                 }
                 gameEventListener.onInvalidPlay(player)
             }
+
 
             // 增加出牌展示时间，让玩家能看清 AI 出的牌
             delay(2000) // 展示牌 2 秒
@@ -154,6 +161,7 @@ class GameManager(
     }
 
 
+
     private var isFirstPlay = true // 添加标记是否为首回合的变量
 
     private fun validatePlay(player: Player, cards: List<Card>): Boolean {
@@ -178,10 +186,12 @@ class GameManager(
             return false
         }
         return compareHands(cards, previousHand) > 0 && isValidHand(cards)
+
     }
 
     private fun handleValidPlay(player: Player, cards: List<Card>) {
         previousHand = cards
+
         player.playCards(previousHand)
         gameEventListener.onCardsPlayed(player, cards)
         consecutivePassCount = 0
@@ -191,6 +201,7 @@ class GameManager(
         }
 
         (gameEventListener as? GameActivity)?.viewModel?.updateLastPlayedCards(cards)
+
 
         if (player.handSize == 0) {
             endGame(player)

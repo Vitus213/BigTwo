@@ -37,6 +37,14 @@ class BluetoothClient(private val context: Context) {
     private var mmInputStream: InputStream? = null
     private var mmOutputStream: OutputStream? = null
 
+
+    private var device: BluetoothDevice? = null  // Changed from val to var and made nullable
+
+    // Add public getter for device
+    val connectedDevice: BluetoothDevice?
+        get() = device
+
+
     // sendChannel 现在只声明而不初始化，因为它将在 connectToServer 内部每次重新创建
     private lateinit var sendChannel: Channel<ByteArray>
 
@@ -50,7 +58,9 @@ class BluetoothClient(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     fun connectToServer(
-        device: BluetoothDevice,
+
+        targetDevice: BluetoothDevice,
+
         onConnected: () -> Unit,
         onDisconnected: () -> Unit,
         onFailed: (String) -> Unit
@@ -70,8 +80,14 @@ class BluetoothClient(private val context: Context) {
 
         Log.d(
             "BluetoothClient",
-            "连接：旧资源已关闭，准备尝试新连接。目标设备: ${device.name ?: device.address}"
+
+
+            "连接：旧资源已关闭，准备尝试新连接。目标设备: ${targetDevice.name ?: targetDevice.address}"
         )
+
+        // 保存设备引用
+        this.device = targetDevice
+
 
         // 重新初始化作用域以取消之前的任务，并为新连接准备
         clientScope = CoroutineScope(Dispatchers.IO)
@@ -83,7 +99,9 @@ class BluetoothClient(private val context: Context) {
             try {
                 val uuid = UUID.fromString(SERVICE_UUID)
                 Log.d("BluetoothClient", "尝试创建RFCOMM socket，UUID: $uuid")
-                mmSocket = device.createInsecureRfcommSocketToServiceRecord(uuid)
+
+                mmSocket = targetDevice.createInsecureRfcommSocketToServiceRecord(uuid)
+
 
                 if (adapter.isDiscovering) {
                     adapter.cancelDiscovery()
@@ -139,6 +157,9 @@ class BluetoothClient(private val context: Context) {
                 _connectionState.value = false
                 withContext(Dispatchers.Main) { onDisconnected() }
                 closeResources()
+
+                device = null  // 清除设备引用
+
             }
         }
     }
@@ -206,6 +227,18 @@ class BluetoothClient(private val context: Context) {
     }
 
     /**
+<<<<<<< HEAD
+=======
+     * 向服务器发送出牌信息
+     * @param cards 要出的牌，格式为JSON字符串
+     */
+    fun sendCardPlay(cards: String) {
+        Log.d("BluetoothClient", "客户端发送出牌信息: $cards")
+        sendData("PLAY_CARDS:$cards")
+    }
+
+    /**
+>>>>>>> upstream/master
      * 用于持续从通道读取数据并发送到服务器。
      */
     private fun sendMessages() = clientScope.launch {
@@ -229,6 +262,9 @@ class BluetoothClient(private val context: Context) {
         Log.d("BluetoothClient", "关闭客户端资源...")
         clientScope.cancel()
         closeResources()
+
+        device = null  // 清除设备引用
+
     }
 
     /**
