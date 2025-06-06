@@ -17,6 +17,9 @@ import android.os.Build
 import android.util.Log
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import com.example.myapplication.domain.Card
+import com.example.myapplication.domain.Rank
+import com.example.myapplication.domain.Suit
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,12 +41,9 @@ import java.util.Collections
 import java.util.UUID
 import java.io.BufferedReader
 import java.io.InputStreamReader
-// Add ConnectedClient data class
-data class ConnectedClient(
-    val id: String,
-    val name: String,
-    val avatar: String
-)
+import org.json.JSONArray
+import org.json.JSONObject
+
 class BluetoothServer(private val context: Context) : Closeable {
 
     companion object {
@@ -136,29 +136,36 @@ class BluetoothServer(private val context: Context) : Closeable {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
+    private fun checkBluetoothPermissions(): Boolean {
+        val hasConnectPermission = hasPermission(Manifest.permission.BLUETOOTH_CONNECT)
+        if (!hasConnectPermission) {
+            Log.e(TAG, "缺少 BLUETOOTH_CONNECT 权限")
+            return false
+        }
+        return true
+    }
+
     @SuppressLint("MissingPermission")
     suspend fun startServer(
         onMessageReceived: (String, String) -> Unit,
         onClientConnected: (String, String) -> Unit,
         onClientDisconnected: (String) -> Unit
     ) {
-        if (!hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) {
-            Log.e(TAG, "启动服务器失败：BLUETOOTH_CONNECT 权限未授予。")
-            withContext(Dispatchers.Main) { // 确保在协程中调用
-                Toast.makeText(context, "启动服务器失败：蓝牙连接权限未授予", Toast.LENGTH_SHORT)
-                    .show()
+        if (!checkBluetoothPermissions()) {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "启动服务器失败：蓝牙权限未授予", Toast.LENGTH_SHORT).show()
             }
             return
         }
         if (bluetoothAdapter?.isEnabled == false) {
             Log.e(TAG, "启动服务器失败：蓝牙未启用。")
-            withContext(Dispatchers.Main) { // 确保在协程中调用
+            withContext(Dispatchers.Main) {
                 Toast.makeText(context, "启动服务器失败：蓝牙未启用", Toast.LENGTH_SHORT).show()
             }
             return
         }
 
-        close() // 先关闭旧资源
+        close()
         Log.d(TAG, "服务器：旧资源已关闭，准备重新启动监听。")
 
         val delayMillis = 500L
@@ -174,6 +181,10 @@ class BluetoothServer(private val context: Context) : Closeable {
                 while (isActive) {
                     Log.d(TAG, "服务器：Accept协程循环，即将调用 serverSocket.accept()...")
                     val socket: BluetoothSocket? = try {
+                        if (!checkBluetoothPermissions()) {
+                            Log.e(TAG, "服务器：缺少蓝牙权限，无法接受连接")
+                            break
+                        }
                         serverSocket?.accept()
                     } catch (e: IOException) {
                         Log.e(TAG, "服务器：serverSocket.accept() 失败（IO异常）：${e.message}", e)
@@ -198,8 +209,7 @@ class BluetoothServer(private val context: Context) : Closeable {
 
                     if (socket != null) {
                         val clientId = socket.remoteDevice.address
-                        
-                        // 检查是否已存在该客户端的连接
+
                         if (clientConnections.containsKey(clientId)) {
                             Log.w(TAG, "客户端 [$clientId] 已存在连接，关闭新连接。")
                             try {
@@ -212,7 +222,6 @@ class BluetoothServer(private val context: Context) : Closeable {
 
                         Log.i(TAG, "客户端 [$clientId] 已连接。当前连接数: ${clientConnections.size + 1}")
 
-                        // 创建新的客户端连接
                         val clientConnection = ClientConnection(
                             socket,
                             onMessageReceived = { message, senderId ->
@@ -235,17 +244,10 @@ class BluetoothServer(private val context: Context) : Closeable {
                             }
                         )
 
-                        // 先添加到连接列表
                         clientConnections[clientId] = clientConnection
-                        
-                        // 通知连接成功
+
                         withContext(Dispatchers.Main) {
                             onClientConnected(clientId, socket.remoteDevice.name ?: "Unknown Device")
-                        }
-
-                        // 开始监听客户端消息
-                        clientConnection.receiveData { message ->
-                            Log.d(TAG, "BluetoothServer: receiveData 收到消息: $message, clientId=$clientId")
                         }
                     }
                 }
@@ -269,20 +271,88 @@ class BluetoothServer(private val context: Context) : Closeable {
                 // 这里只做消息转发，不维护 UI 列表
                 // 你可以在这里通过 sendDataToClient/sendDataToAllClients 通知其他客户端
             }
-
-
             message.startsWith("PLAY_CARDS:") -> {
                 val cardsJson = message.substringAfter("PLAY_CARDS:")
                 try {
                     val clientName = getClientNameById(clientId) ?: "未知玩家"
                     Log.d(TAG, "服务器收到玩家 [$clientName] 出牌: $cardsJson")
+
+                    // 解析出牌数据
+                    val cards = JSONArray(cardsJson)
+                    val playedCards = mutableListOf<Card>()
+                    for (i in 0 until cards.length()) {
+                        val cardObj = cards.getJSONObject(i)
+                        val suit = when (cardObj.getString("suit").lowercase()) {
+                            "hearts" -> Suit.HEARTS
+                            "spades" -> Suit.SPADES
+                            "diamonds" -> Suit.DIAMONDS
+                            "clubs" -> Suit.CLUBS
+                            else -> throw IllegalArgumentException("Invalid suit")
+                        }
+                        val rank = when (cardObj.getString("value")) {
+                            "A" -> Rank.ACE
+                            "J" -> Rank.JACK
+                            "Q" -> Rank.QUEEN
+                            "K" -> Rank.KING
+                            else -> {
+                                val value = cardObj.getString("value").toInt()
+                                Rank.values().find { it.value == value }
+                                    ?: throw IllegalArgumentException("Invalid rank value: $value")
+                            }
+                        }
+                        playedCards.add(Card(suit, rank))
+                    }
+
+                    // 更新客户端手牌
+                    val client = clientConnections[clientId]
+                    if (client != null) {
+                        val currentHand = client.currentHand.toMutableList()
+                        Log.d(TAG, "更新客户端 [$clientName] 手牌: 原有 ${currentHand.size} 张，移除 ${playedCards.size} 张")
+                        Log.d(TAG, "客户端 [$clientName] 当前手牌: ${currentHand.joinToString { "${it.suit}${it.rank}" }}")
+
+                        // 从手牌中移除已出的牌
+                        playedCards.forEach { playedCard ->
+                            val index = currentHand.indexOfFirst { it.suit == playedCard.suit && it.rank == playedCard.rank }
+                            if (index != -1) {
+                                currentHand.removeAt(index)
+                                Log.d(TAG, "移除牌: ${playedCard.suit}${playedCard.rank}")
+                            } else {
+                                Log.w(TAG, "警告：尝试移除不存在的牌 ${playedCard.suit}${playedCard.rank}")
+                            }
+                        }
+
+                        client.currentHand = currentHand
+                        Log.d(TAG, "客户端 [$clientName] 剩余手牌: ${currentHand.size} 张")
+                        Log.d(TAG, "客户端 [$clientName] 剩余手牌: ${currentHand.joinToString { "${it.suit}${it.rank}" }}")
+
+                        // 发送更新后的手牌给客户端
+                        val remainingCardsJson = JSONArray().apply {
+                            currentHand.forEach { card: Card ->
+                                put(JSONObject().apply {
+                                    put("suit", card.suit.toString())
+                                    put("value", when (card.rank) {
+                                        Rank.ACE -> "A"
+                                        Rank.JACK -> "J"
+                                        Rank.QUEEN -> "Q"
+                                        Rank.KING -> "K"
+                                        else -> card.rank.value.toString()
+                                    })
+                                })
+                            }
+                        }.toString()
+
+                        Log.d(TAG, "发送更新后的手牌给客户端 [$clientName]: $remainingCardsJson")
+                        sendDataToClient(clientId, "UPDATE_HAND:$remainingCardsJson")
+                    } else {
+                        Log.e(TAG, "错误：找不到客户端 [$clientId] 的连接信息")
+                    }
+
                     // 广播出牌信息给所有客户端
                     broadcastCardPlay(clientId, clientName, cardsJson)
                 } catch (e: Exception) {
                     Log.e(TAG, "处理出牌信息失败: ${e.message}", e)
                 }
             }
-
             message.startsWith("PLAYER_ACTION:") -> {
                 Log.d(TAG, "服务器处理玩家操作: $message")
                 sendDataToAllClients(message)
@@ -293,7 +363,12 @@ class BluetoothServer(private val context: Context) : Closeable {
         }
     }
 
+    @SuppressLint("MissingPermission")
     fun sendDataToClient(clientId: String, data: String) {
+        if (!checkBluetoothPermissions()) {
+            Log.e(TAG, "发送数据失败：缺少蓝牙权限")
+            return
+        }
         Log.d(TAG, "服务器尝试发送数据给客户端 [$clientId]: $data")
         val client = clientConnections[clientId]
         if (client != null) {
@@ -308,7 +383,12 @@ class BluetoothServer(private val context: Context) : Closeable {
         }
     }
 
+    @SuppressLint("MissingPermission")
     fun sendDataToAllClients(data: String) {
+        if (!checkBluetoothPermissions()) {
+            Log.e(TAG, "广播数据失败：缺少蓝牙权限")
+            return
+        }
         Log.d(TAG, "服务器广播数据给所有客户端: $data")
         clientConnections.forEach { (clientId, client) ->
             try {
@@ -320,8 +400,6 @@ class BluetoothServer(private val context: Context) : Closeable {
         }
     }
 
-
-
     /**
      * 向指定客户端发送其手牌信息
      * @param clientId 目标客户端ID
@@ -330,6 +408,44 @@ class BluetoothServer(private val context: Context) : Closeable {
     fun sendPlayerCards(clientId: String, cards: String) {
         Log.d(TAG, "服务器向客户端 [$clientId] 发送手牌信息")
         val message = "PLAYER_CARDS:$cards"
+
+        // 解析并更新客户端手牌
+        try {
+            val cardsArray = JSONArray(cards)
+            val handCards = mutableListOf<Card>()
+            for (i in 0 until cardsArray.length()) {
+                val cardObj = cardsArray.getJSONObject(i)
+                val suit = when (cardObj.getString("suit").lowercase()) {
+                    "hearts" -> Suit.HEARTS
+                    "spades" -> Suit.SPADES
+                    "diamonds" -> Suit.DIAMONDS
+                    "clubs" -> Suit.CLUBS
+                    else -> throw IllegalArgumentException("Invalid suit")
+                }
+                val rank = when (cardObj.getString("value")) {
+                    "A" -> Rank.ACE
+                    "J" -> Rank.JACK
+                    "Q" -> Rank.QUEEN
+                    "K" -> Rank.KING
+                    else -> Rank.values().find { it.value == cardObj.getString("value").toInt() }
+                        ?: throw IllegalArgumentException("Invalid rank")
+                }
+                handCards.add(Card(suit, rank))
+            }
+
+            // 更新客户端手牌
+            val client = clientConnections[clientId]
+            if (client != null) {
+                client.currentHand = handCards.toMutableList()
+                Log.d(TAG, "更新客户端 [$clientId] 手牌: ${handCards.size} 张")
+                Log.d(TAG, "客户端 [$clientId] 当前手牌: ${handCards.joinToString { "${it.suit}${it.rank}" }}")
+            } else {
+                Log.e(TAG, "错误：找不到客户端 [$clientId] 的连接信息")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "解析手牌数据失败: ${e.message}", e)
+        }
+
         sendDataToClient(clientId, message)
     }
 
@@ -346,7 +462,6 @@ class BluetoothServer(private val context: Context) : Closeable {
     }
 
     @SuppressLint("MissingPermission")
-
     suspend fun startDiscovery() {
         if (!hasPermission(Manifest.permission.BLUETOOTH_SCAN)) {
             Log.e(TAG, "开始发现失败：BLUETOOTH_SCAN 权限未授予。")
@@ -373,9 +488,7 @@ class BluetoothServer(private val context: Context) : Closeable {
         bluetoothAdapter?.startDiscovery() // <--- 这里也会有 Lint 警告，方法级别的SuppressLint已处理
     }
 
-
     @SuppressLint("MissingPermission")
-
     suspend fun stopDiscovery() {
         // Lint 警告：Call requires permission...
         if (bluetoothAdapter?.isDiscovering == false) { // <--- 这里也会有 Lint 警告，方法级别的SuppressLint已处理
@@ -387,10 +500,7 @@ class BluetoothServer(private val context: Context) : Closeable {
         _isDiscovering.value = false // 在实际停止后更新状态
     }
 
-
-
     @SuppressLint("MissingPermission")
-
     override fun close() { // 这是一个非 suspend 函数
         Log.d(TAG, "External close() called, cancelling server resources...")
 
@@ -399,7 +509,15 @@ class BluetoothServer(private val context: Context) : Closeable {
         acceptJob = null
 
         // 停止蓝牙发现
-        bluetoothAdapter?.cancelDiscovery()
+        try {
+            if (checkBluetoothPermissions()) {
+                bluetoothAdapter?.cancelDiscovery()
+            } else {
+                Log.w(TAG, "无法停止蓝牙发现：缺少权限")
+            }
+        } catch (e: SecurityException) {
+            Log.e(TAG, "停止蓝牙发现时发生权限错误：${e.message}", e)
+        }
         _isDiscovering.value = false
 
         // 启动一个独立的协程来关闭所有客户端，因为 ClientConnection.close() 是 suspend 函数
@@ -417,7 +535,6 @@ class BluetoothServer(private val context: Context) : Closeable {
             clientConnections.clear() // 清空列表
             Log.d(TAG, "所有客户端连接已关闭并从列表中移除。")
         }
-
 
         try {
             serverSocket?.close()
@@ -441,18 +558,94 @@ class BluetoothServer(private val context: Context) : Closeable {
 
     fun getConnectedClientCount(): Int = clientConnections.size
     fun getConnectedClientIds(): Set<String> = clientConnections.keys
-    fun getClientNameById(id: String): String? = clientConnections[id]?.clientName
+    @SuppressLint("MissingPermission")
+    fun getClientNameById(id: String): String? {
+        if (!checkBluetoothPermissions()) {
+            Log.e(TAG, "获取客户端名称失败：缺少蓝牙权限")
+            return null
+        }
+        return clientConnections[id]?.clientName
+    }
 
     @SuppressLint("MissingPermission")
     fun getPairedDevices(): List<BluetoothDevice> {
-        if (!hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) {
-            Log.e(TAG, "获取已配对设备失败：BLUETOOTH_CONNECT 权限未授予。")
+        if (!checkBluetoothPermissions()) {
+            Log.e(TAG, "获取已配对设备失败：缺少蓝牙权限")
             return emptyList()
         }
         if (bluetoothAdapter?.isEnabled == false) {
-            Log.e(TAG, "获取已配对设备失败：蓝牙未启用。")
+            Log.e(TAG, "获取已配对设备失败：蓝牙未启用")
             return emptyList()
         }
         return bluetoothAdapter?.bondedDevices?.toList() ?: emptyList()
+    }
+
+    private inner class ClientConnection(
+        private val socket: BluetoothSocket,
+        private val onMessageReceived: (String, String) -> Unit,
+        private val onClientDisconnected: (String) -> Unit
+    ) : Closeable {
+        val clientId: String = socket.remoteDevice.address
+        val clientName: String = try {
+            if (checkBluetoothPermissions()) {
+                socket.remoteDevice.name ?: "Unknown Device"
+            } else {
+                Log.w(TAG, "无法获取设备名称：缺少蓝牙权限")
+                "Unknown Device"
+            }
+        } catch (e: SecurityException) {
+            Log.e(TAG, "获取设备名称时发生权限错误：${e.message}", e)
+            "Unknown Device"
+        }
+        var currentHand: MutableList<Card> = mutableListOf()
+
+        private val inputStream = socket.inputStream
+        private val outputStream = socket.outputStream
+        private val reader = BufferedReader(InputStreamReader(inputStream))
+        private var isRunning = true
+
+        init {
+            Log.d(TAG, "初始化客户端 [$clientId] 连接，名称: $clientName")
+            serverScope.launch {
+                try {
+                    while (isRunning) {
+                        val message = reader.readLine()
+                        if (message != null) {
+                            Log.d(TAG, "收到客户端 [$clientId] 消息: $message")
+                            onMessageReceived(message, clientId)
+                        } else {
+                            Log.d(TAG, "客户端 [$clientId] 连接关闭")
+                            break
+                        }
+                    }
+                } catch (e: IOException) {
+                    Log.e(TAG, "读取客户端 [$clientId] 数据失败: ${e.message}", e)
+                } finally {
+                    close()
+                }
+            }
+        }
+
+        fun sendData(data: String) {
+            try {
+                outputStream.write("$data\n".toByteArray())
+                outputStream.flush()
+            } catch (e: IOException) {
+                Log.e(TAG, "发送数据给客户端 [$clientId] 失败: ${e.message}", e)
+                throw e
+            }
+        }
+
+        override fun close() {
+            isRunning = false
+            try {
+                reader.close()
+                outputStream.close()
+                socket.close()
+            } catch (e: IOException) {
+                Log.e(TAG, "关闭客户端 [$clientId] 连接失败: ${e.message}", e)
+            }
+            onClientDisconnected(clientId)
+        }
     }
 }

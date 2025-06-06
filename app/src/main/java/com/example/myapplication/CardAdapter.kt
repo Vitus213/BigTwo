@@ -105,9 +105,6 @@ class CardAdapter(
                 Rank.JACK -> "j"
                 Rank.QUEEN -> "q"
                 Rank.KING -> "k"
-
-                Rank.TWO -> "2"
-
                 else -> card.rank.value.toString() // 数字牌直接使用数值
             }
 

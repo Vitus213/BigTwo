@@ -15,9 +15,8 @@ enum class Suit {
 
 // 扑克大小枚举（带数值表示）
 enum class Rank(val value: Int) {
-
-
-
+    ACE(1),
+    TWO(2),
     THREE(3),
     FOUR(4),
     FIVE(5),
@@ -26,13 +25,9 @@ enum class Rank(val value: Int) {
     EIGHT(8),
     NINE(9),
     TEN(10),
-
-    JACK(11),
-    QUEEN(12),
-    KING(13),
-    ACE(14), // A现在是14
-    TWO(15); // 2现在是15，最大
-
+    JACK(11),   // 钩
+    QUEEN(12),  // 圈
+    KING(13)    // 凯
 }
 
 // 扑克牌数据类
@@ -59,10 +54,6 @@ data class Card(
             Rank.JACK -> "J"
             Rank.QUEEN -> "Q"
             Rank.KING -> "K"
-
-            Rank.TWO -> "2"
-
-
             else -> rank.value.toString()
         }
 

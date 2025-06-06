@@ -32,14 +32,6 @@ class GameActivity : ComponentActivity(), GameManager.GameEventListener {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_game)
 
-
-        // 获取传递过来的规则类型、对战模式和难度
-        val ruleType = intent.getStringExtra("RULE_TYPE")
-        val battleMode = intent.getStringExtra("BATTLE_MODE")
-        val difficulty = intent.getStringExtra("DIFFICULTY") // 新增难度参数
-        println("GameActivity (实际游戏) 接收到的规则类型: $ruleType, 对战模式: $battleMode, 难度: $difficulty")
-
-
         recyclerView = findViewById(R.id.rv_player_hand)
         playButton = findViewById(R.id.btn_play)
         passButton = findViewById(R.id.btn_pass)
@@ -48,9 +40,7 @@ class GameActivity : ComponentActivity(), GameManager.GameEventListener {
         setupLastPlayArea()
 
 
-
         // 初始化游戏管理器
-
         gameManager = GameManager(this, viewModel.coroutineScope)
         viewModel.initializeGameManager(gameManager)
 
@@ -173,9 +163,7 @@ class GameActivity : ComponentActivity(), GameManager.GameEventListener {
                 recyclerView.isEnabled = true
                 playButton.isEnabled = false // 等待玩家选择卡牌
             } else {
-
-                // Toast.makeText(this, "AI ${players.indexOf(player)}的回合", Toast.LENGTH_SHORT).show()
-
+               // Toast.makeText(this, "AI ${players.indexOf(player)}的回合", Toast.LENGTH_SHORT).show()
                 // 禁用交互
                 recyclerView.isEnabled = false
                 playButton.isEnabled = false
@@ -189,20 +177,9 @@ class GameActivity : ComponentActivity(), GameManager.GameEventListener {
                 // 更新手牌（已在观察者中处理）
                 viewModel.setHumanHand(player.getHand())
                 cardAdapter.submitList(player.getHand())
-
-                if (cards.isEmpty()) {
-                    Toast.makeText(this, "您选择过牌", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(this, "您出牌: ${cards.joinToString()}", Toast.LENGTH_SHORT).show()
-                }
+                Toast.makeText(this, "您出牌: ${cards.joinToString()}", Toast.LENGTH_SHORT).show()
             } else {
-                // AI玩家出牌提示
-                if (cards.isEmpty()) {
-                    Toast.makeText(this, "AI ${gameManager.currentPlayerIndex} 选择过牌", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(this, "AI ${gameManager.currentPlayerIndex} 出牌: ${cards.joinToString()}", Toast.LENGTH_SHORT).show()
-                }
-
+                Toast.makeText(this, "AI 出牌: ${cards.joinToString()}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -235,11 +212,9 @@ class GameActivity : ComponentActivity(), GameManager.GameEventListener {
         runOnUiThread {
             if (player.isHuman) {
                 Toast.makeText(this, "出牌无效，请重新选择", Toast.LENGTH_SHORT).show()
-
-            } else {
-                Toast.makeText(this, "AI ${gameManager.currentPlayerIndex} 选择过牌", Toast.LENGTH_SHORT).show()
             }
         }
     }
+
 
 }
