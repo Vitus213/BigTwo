@@ -3,20 +3,31 @@ package com.example.myapplication.domain
 import com.example.myapplication.ai.aiPlay
 import java.io.Serializable
 
+import com.example.myapplication.ai.HardAI
+
 
 class Player(
     val name: String,
     val isHuman: Boolean,
+
+    val difficulty: String = "NORMAL",  // 添加难度属性
+
     private val hand: MutableList<Card> = mutableListOf()
 ) : Serializable {
 
     fun playCards(previousHand: List<Card>): List<Card> {
         return if (isHuman) {
-            // 人类玩家通过UI交互出牌，此处返回空表示未处理
+
             hand.removeAll(previousHand)
             emptyList()
         } else {
-            val cardsToPlay = aiPlay(hand, previousHand)
+            // 根据难度选择不同的 AI 策略
+            val cardsToPlay = when (difficulty) {
+                "HARD" -> HardAI.play(hand, previousHand)  // 使用困难 AI
+                else -> aiPlay(hand, previousHand)         // 使用简单 AI
+            }
+
+
             if (cardsToPlay.isNotEmpty() && hand.containsAll(cardsToPlay)) {
                 hand.removeAll(cardsToPlay)
             }

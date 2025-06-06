@@ -5,7 +5,10 @@ enum class HandType {
     // 五张牌型
     STRAIGHT_FLUSH, FOUR_OF_A_KIND, FULL_HOUSE, FLUSH, STRAIGHT,
     // 其他数量牌型
-    THREE_OF_A_KIND, PAIR, SINGLE, INVALID
+
+    BOMB,  // 添加炸弹类型（四张）
+    THREE_OF_A_KIND, PAIR, SINGLE
+
 }
 
 // 牌型评估结果，包含类型、关键点数和花色
@@ -16,35 +19,26 @@ data class HandResult(
 )
 
 // 评估单张、对子、三张、五张的牌型
+
+// 在 evaluateHand 函数中添加四张牌的支持
 fun evaluateHand(cards: List<Card>): HandResult {
-    println("开始评估牌型: ${cards.joinToString { "${it.rank}${it.suit}" }}")
-    
-    // 根据牌数判断牌型
-    val handType = when (cards.size) {
-        1 -> HandType.SINGLE
-        2 -> HandType.PAIR
-        3 -> HandType.THREE_OF_A_KIND
+    return when (cards.size) {
+        1 -> evaluateSingle(cards)
+        2 -> evaluatePair(cards)
+        3 -> evaluateThreeOfAKind(cards)
+        4 -> evaluateBomb(cards)   // 添加四张牌的评估
         5 -> evaluateFiveCardHand(cards)
-        else -> HandType.INVALID
+        else -> throw IllegalArgumentException("Unsupported number of cards: ${cards.size}")
     }
-    
-    println("评估结果: 牌型=$handType")
-    
-    // 获取牌型大小
-    val rank = when (handType) {
-        HandType.SINGLE -> cards[0].rank
-        HandType.PAIR -> cards[0].rank
-        HandType.THREE_OF_A_KIND -> cards[0].rank
-        HandType.STRAIGHT_FLUSH,
-        HandType.FOUR_OF_A_KIND,
-        HandType.FULL_HOUSE,
-        HandType.FLUSH,
-        HandType.STRAIGHT -> getFiveCardHandRank(cards)
-        else -> Rank.TWO
-    }
-    
-    println("评估结果: 大小=$rank")
-    return HandResult(handType, rank, cards[0].suit)
+}
+
+// 评估四张牌（炸弹）
+private fun evaluateBomb(cards: List<Card>): HandResult {
+    require(cards.size == 4)
+    require(cards.all { it.rank == cards[0].rank })
+    val maxSuit = cards.maxBy { it.suit }.suit
+    return HandResult(HandType.BOMB, cards[0].rank, maxSuit)
+
 }
 
 // 评估单张
@@ -71,51 +65,54 @@ private fun evaluateThreeOfAKind(cards: List<Card>): HandResult {
 }
 
 // 评估五张牌型
-private fun evaluateFiveCardHand(cards: List<Card>): HandType {
-    println("评估五张牌型: ${cards.joinToString { "${it.rank}${it.suit}" }}")
-    
+
+private fun evaluateFiveCardHand(cards: List<Card>): HandResult {
+    require(cards.size == 5)
     val isFlush = cards.all { it.suit == cards[0].suit }
     val rankValues = cards.map { it.rank.value }.sorted()
     val isStraight = checkStraight(rankValues)
-    
-    println("五张牌型评估: 同花=$isFlush, 顺子=$isStraight")
-    
-    // 检查同花顺
+
+    // 同花顺
     if (isFlush && isStraight) {
-        println("五张牌型评估: 同花顺")
-        return HandType.STRAIGHT_FLUSH
+        val maxRank = getStraightMaxRank(rankValues)
+        val maxCard = cards.filter { it.rank == maxRank }.maxBy { it.suit }
+        return HandResult(HandType.STRAIGHT_FLUSH, maxRank, maxCard.suit)
     }
-    
-    // 按点数分组
+
+    // 按点数分组，降序排列
     val groups = cards.groupBy { it.rank }
-    println("五张牌型评估: 点数分组=${groups.mapValues { it.value.size }}")
-    
-    // 检查四条
-    if (groups.any { it.value.size == 4 }) {
-        println("五张牌型评估: 四条")
-        return HandType.FOUR_OF_A_KIND
+        .values
+        .sortedByDescending { it.size }
+    println(groups)
+
+    // 四条
+    if (groups[0].size == 4) {
+        val fourRank = groups[0][0].rank
+        val maxSuit = groups[0].maxBy { it.suit }.suit
+        return HandResult(HandType.FOUR_OF_A_KIND, fourRank, maxSuit)
     }
-    
-    // 检查葫芦
-    if (groups.any { it.value.size == 3 } && groups.any { it.value.size == 2 }) {
-        println("五张牌型评估: 葫芦")
-        return HandType.FULL_HOUSE
+
+    // 葫芦（三张+对子）
+    if (groups[0].size == 3 && groups[1].size == 2  || (groups[0].size == 2 && groups[1].size==3)) {
+        val threeRank = groups[0][0].rank
+        val maxSuit = groups[0].maxBy { it.suit }.suit
+        return HandResult(HandType.FULL_HOUSE, threeRank, maxSuit)
     }
-    
-    // 检查同花
+
+    // 同花
     if (isFlush) {
-        println("五张牌型评估: 同花")
-        return HandType.FLUSH
+        val maxCard = cards.maxWith(compareBy(Card::rank, Card::suit))
+        return HandResult(HandType.FLUSH, maxCard.rank, maxCard.suit)
     }
-    
-    // 检查顺子
+
+    // 顺子（杂顺）
     if (isStraight) {
-        println("五张牌型评估: 顺子")
-        return HandType.STRAIGHT
+        val maxRank = getStraightMaxRank(rankValues)
+        val maxCard = cards.filter { it.rank == maxRank }.maxBy { it.suit }
+        return HandResult(HandType.STRAIGHT, maxRank, maxCard.suit)
     }
-    
-    println("五张牌型评估: 无效牌型")
-    return HandType.INVALID
+
+    throw IllegalArgumentException("Invalid five-card hand")
 }
 
 // 判断是否为顺子（包括A-2-3-4-5）
@@ -127,75 +124,50 @@ private fun checkStraight(rankValues: List<Int>): Boolean {
     }
 }
 
-// 获取五张牌型的关键点数
-private fun getFiveCardHandRank(cards: List<Card>): Rank {
-    println("获取五张牌型关键点数: ${cards.joinToString { "${it.rank}${it.suit}" }}")
-    
-    val rankValues = cards.map { it.rank.value }.sorted()
-    val groups = cards.groupBy { it.rank }
-    
-    // 同花顺和顺子：取最大点数
-    if (cards.all { it.suit == cards[0].suit } || checkStraight(rankValues)) {
-        val maxRank = if (rankValues == listOf(1, 2, 3, 4, 5)) {
-            Rank.FIVE // A-2-3-4-5的最大点数是5
-        } else {
-            Rank.values().find { it.value == rankValues.last() }!!
-        }
-        println("同花顺/顺子关键点数: $maxRank")
-        return maxRank
+
+// 获取顺子的最大点数
+private fun getStraightMaxRank(rankValues: List<Int>): Rank {
+    return if (rankValues == listOf(1, 2, 3, 4, 5)) {
+        Rank.FIVE // A-2-3-4-5的最大点数是5
+    } else {
+        Rank.values().find { it.value == rankValues.last() }!!
     }
-    
-    // 四条：取四张牌的点数
-    val fourOfAKind = groups.entries.find { it.value.size == 4 }
-    if (fourOfAKind != null) {
-        println("四条关键点数: ${fourOfAKind.key}")
-        return fourOfAKind.key
-    }
-    
-    // 葫芦：取三张牌的点数
-    val threeOfAKind = groups.entries.find { it.value.size == 3 }
-    if (threeOfAKind != null) {
-        println("葫芦关键点数: ${threeOfAKind.key}")
-        return threeOfAKind.key
-    }
-    
-    // 同花：取最大点数
-    if (cards.all { it.suit == cards[0].suit }) {
-        val maxRank = cards.maxBy { it.rank }.rank
-        println("同花关键点数: $maxRank")
-        return maxRank
-    }
-    
-    // 默认返回最大点数
-    val maxRank = cards.maxBy { it.rank }.rank
-    println("默认关键点数: $maxRank")
-    return maxRank
 }
 
 // 比较两手牌的大小
+// 修改 compareHands 函数以正确处理四张牌的比较
 fun compareHands(hand1: List<Card>, hand2: List<Card>): Int {
-    println("比较牌型:")
-    println("牌型1: ${hand1.joinToString { "${it.rank}${it.suit}" }}")
-    println("牌型2: ${hand2.joinToString { "${it.rank}${it.suit}" }}")
-    
-    // 评估两个牌型
+    require(hand1.size == hand2.size) { "Hands must have the same number of cards" }
+
     val result1 = evaluateHand(hand1)
     val result2 = evaluateHand(hand2)
-    
-    println("牌型1评估结果: 类型=${result1.type}, 大小=${result1.rank}")
-    println("牌型2评估结果: 类型=${result2.type}, 大小=${result2.rank}")
-    
-    // 如果牌型不同，直接比较牌型大小
-    if (result1.type != result2.type) {
-        val comparison = result1.type.ordinal.compareTo(result2.type.ordinal)
-        println("牌型不同，比较结果: $comparison")
-        return comparison
+
+    return when (hand1.size) {
+        1, 2, 3 -> {
+            // 单张、对子、三张直接比较点数和花色
+            compareBy<HandResult>({ it.rank.value }, { it.suit }).compare(result1, result2)
+        }
+        4 -> {
+            // 四张牌（炸弹）比较点数和花色
+            compareBy<HandResult>({ it.rank.value }, { it.suit }).compare(result1, result2)
+        }
+        5 -> {
+            // 五张牌型比较（保持不变）
+            val fiveCardOrder = listOf(
+                HandType.STRAIGHT_FLUSH,
+                HandType.FOUR_OF_A_KIND,
+                HandType.FULL_HOUSE,
+                HandType.FLUSH,
+                HandType.STRAIGHT
+            )
+            val typeCompare = fiveCardOrder.indexOf(result1.type)
+                .compareTo(fiveCardOrder.indexOf(result2.type))
+            if (typeCompare != 0) typeCompare
+            else compareBy<HandResult>({ it.rank.value }, { it.suit }).compare(result1, result2)
+        }
+        else -> throw IllegalArgumentException("Unsupported hand size")
     }
-    
-    // 牌型相同，比较大小
-    val rankComparison = result1.rank.value.compareTo(result2.rank.value)
-    println("牌型相同，比较大小: $rankComparison")
-    return rankComparison
+
 }
 
 // Suit比较（按题目顺序：方块 < 梅花 < 红桃 < 黑桃）
@@ -205,15 +177,25 @@ operator fun Suit.compareTo(other: Suit): Int {
 }
 
 // 验证牌型是否有效的方法
+
+// 在 isValidHand 函数中添加四张牌的支持
+
 fun isValidHand(cards: List<Card>): Boolean {
     return when (cards.size) {
         1 -> isValidSingle(cards)
         2 -> isValidPair(cards)
         3 -> isValidThreeOfAKind(cards)
+        4 -> isValidBomb(cards)   // 添加四张牌的验证
         5 -> isValidFiveCardHand(cards)
-        else -> false // 不支持其他数量的牌
+        else -> false
     }
 }
+
+// 验证四张牌（炸弹）：必须四张牌且点数相同
+private fun isValidBomb(cards: List<Card>): Boolean {
+    return cards.size == 4 && cards.all { it.rank == cards[0].rank }
+}
+
 
 // 验证单张牌（总是有效）
 private fun isValidSingle(cards: List<Card>): Boolean {
@@ -227,61 +209,41 @@ private fun isValidPair(cards: List<Card>): Boolean {
 
 // 验证三张：必须三张牌且点数相同
 private fun isValidThreeOfAKind(cards: List<Card>): Boolean {
-    println("验证三张: ${cards.joinToString { "${it.rank}${it.suit}" }}")
-    val result = cards.size == 3 && cards.all { it.rank == cards[0].rank }
-    println("三张验证结果: $result")
-    return result
+
+    return cards.size == 3 && cards.all { it.rank == cards[0].rank }
+
 }
 
 // 验证五张牌型
 private fun isValidFiveCardHand(cards: List<Card>): Boolean {
-    println("验证五张: ${cards.joinToString { "${it.rank}${it.suit}" }}")
-    if (cards.size != 5) {
-        println("五张验证失败: 牌数不是5张")
-        return false
-    }
+
+    if (cards.size != 5) return false
+
 
     val isFlush = cards.all { it.suit == cards[0].suit }
     val rankValues = cards.map { it.rank.value }.sorted()
     val isStraight = checkStraight(rankValues)
 
-    println("五张验证: 同花=$isFlush, 顺子=$isStraight")
 
     // 检查同花顺
-    if (isFlush && isStraight) {
-        println("五张验证: 同花顺")
-        return true
-    }
+    if (isFlush && isStraight) return true
 
     // 按点数分组
     val groups = cards.groupBy { it.rank }
-    println("五张验证: 点数分组=${groups.mapValues { it.value.size }}")
 
     // 检查四条（4张相同+1张不同）
-    if (groups.any { it.value.size == 4 }) {
-        println("五张验证: 四条")
-        return true
-    }
+    if (groups.any { it.value.size == 4 }) return true
 
     // 检查葫芦（3张相同+2张相同）
-    if (groups.any { it.value.size == 3 } && groups.any { it.value.size == 2 }) {
-        println("五张验证: 葫芦")
-        return true
-    }
+    if (groups.any { it.value.size == 3 } && groups.any { it.value.size == 2 }) return true
 
     // 检查同花
-    if (isFlush) {
-        println("五张验证: 同花")
-        return true
-    }
+    if (isFlush) return true
 
     // 检查顺子
-    if (isStraight) {
-        println("五张验证: 顺子")
-        return true
-    }
+    if (isStraight) return true
 
-    println("五张验证: 无效牌型")
+
     return false
 }
 

@@ -19,9 +19,12 @@
         </DropdownSelection>
         <DialogSelection />
       </SelectionState>
+<<<<<<< HEAD
+=======
       <SelectionState runConfigName="OnlineRoomPreview">
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>
+>>>>>>> upstream/master
       <SelectionState runConfigName="OnlineRoomActivity">
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>

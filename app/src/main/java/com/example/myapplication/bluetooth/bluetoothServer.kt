@@ -269,6 +269,8 @@ class BluetoothServer(private val context: Context) : Closeable {
                 // 这里只做消息转发，不维护 UI 列表
                 // 你可以在这里通过 sendDataToClient/sendDataToAllClients 通知其他客户端
             }
+
+
             message.startsWith("PLAY_CARDS:") -> {
                 val cardsJson = message.substringAfter("PLAY_CARDS:")
                 try {
@@ -280,6 +282,7 @@ class BluetoothServer(private val context: Context) : Closeable {
                     Log.e(TAG, "处理出牌信息失败: ${e.message}", e)
                 }
             }
+
             message.startsWith("PLAYER_ACTION:") -> {
                 Log.d(TAG, "服务器处理玩家操作: $message")
                 sendDataToAllClients(message)
@@ -317,6 +320,8 @@ class BluetoothServer(private val context: Context) : Closeable {
         }
     }
 
+
+
     /**
      * 向指定客户端发送其手牌信息
      * @param clientId 目标客户端ID
@@ -341,6 +346,7 @@ class BluetoothServer(private val context: Context) : Closeable {
     }
 
     @SuppressLint("MissingPermission")
+
     suspend fun startDiscovery() {
         if (!hasPermission(Manifest.permission.BLUETOOTH_SCAN)) {
             Log.e(TAG, "开始发现失败：BLUETOOTH_SCAN 权限未授予。")
@@ -367,7 +373,9 @@ class BluetoothServer(private val context: Context) : Closeable {
         bluetoothAdapter?.startDiscovery() // <--- 这里也会有 Lint 警告，方法级别的SuppressLint已处理
     }
 
+
     @SuppressLint("MissingPermission")
+
     suspend fun stopDiscovery() {
         // Lint 警告：Call requires permission...
         if (bluetoothAdapter?.isDiscovering == false) { // <--- 这里也会有 Lint 警告，方法级别的SuppressLint已处理
@@ -379,7 +387,10 @@ class BluetoothServer(private val context: Context) : Closeable {
         _isDiscovering.value = false // 在实际停止后更新状态
     }
 
+
+
     @SuppressLint("MissingPermission")
+
     override fun close() { // 这是一个非 suspend 函数
         Log.d(TAG, "External close() called, cancelling server resources...")
 
