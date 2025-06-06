@@ -42,6 +42,12 @@ class BluetoothClient(private val context: Context) {
     val connectedDevice: BluetoothDevice?
         get() = device
 
+    // Add getClientId method
+    @SuppressLint("MissingPermission")
+    fun getClientId(): String {
+        return device?.address ?: "LOCAL_HOST_ID"
+    }
+
     // sendChannel 现在只声明而不初始化，因为它将在 connectToServer 内部每次重新创建
     private lateinit var sendChannel: Channel<ByteArray>
 

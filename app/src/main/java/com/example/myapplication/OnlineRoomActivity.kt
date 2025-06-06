@@ -63,6 +63,7 @@ import com.example.myapplication.bluetooth.BluetoothClient
 import com.example.myapplication.bluetooth.BluetoothPermissionManager
 import com.example.myapplication.bluetooth.BluetoothServer
 import com.example.myapplication.domain.Card
+import com.example.myapplication.domain.PlayerHandManager
 import com.example.myapplication.domain.Rank
 import com.example.myapplication.domain.Suit
 import com.example.myapplication.domain.evaluateHand
@@ -93,7 +94,8 @@ private const val TAG = "OnlineRoomActivity"
 data class ConnectedClient(
     val id: String,
     val name: String,
-    val avatar: String
+    val avatar: String,
+    val playerCards: List<Card> = emptyList()  // 添加手牌字段
 )
 
 // 修改 GameState 数据类，添加游戏状态
@@ -110,7 +112,41 @@ data class GameState(
     val isGameReady: Boolean = false,  // 游戏是否准备就绪（已发牌）
     val isGameRunning: Boolean = false,  // 游戏是否正在运行
     val currentPlayerIndex: Int = 0  // 当前玩家在players列表中的索引
-)
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is GameState) return false
+
+        return playerCards == other.playerCards &&
+                lastPlayedCards == other.lastPlayedCards &&
+                lastPlayedBy == other.lastPlayedBy &&
+                currentPlayer == other.currentPlayer &&
+                isMyTurn == other.isMyTurn &&
+                players == other.players &&
+                isDealing == other.isDealing &&
+                dealerIndex == other.dealerIndex &&
+                cardsDealt == other.cardsDealt &&
+                isGameReady == other.isGameReady &&
+                isGameRunning == other.isGameRunning &&
+                currentPlayerIndex == other.currentPlayerIndex
+    }
+
+    override fun hashCode(): Int {
+        var result = playerCards.hashCode()
+        result = 31 * result + lastPlayedCards.hashCode()
+        result = 31 * result + lastPlayedBy.hashCode()
+        result = 31 * result + currentPlayer.hashCode()
+        result = 31 * result + isMyTurn.hashCode()
+        result = 31 * result + players.hashCode()
+        result = 31 * result + isDealing.hashCode()
+        result = 31 * result + dealerIndex
+        result = 31 * result + cardsDealt
+        result = 31 * result + isGameReady.hashCode()
+        result = 31 * result + isGameRunning.hashCode()
+        result = 31 * result + currentPlayerIndex
+        return result
+    }
+}
 
 // 添加 Card 扩展属性
 private var Card.isSelected: Boolean
@@ -130,6 +166,8 @@ class OnlineRoomActivity : ComponentActivity() {
     private val _isHost = MutableStateFlow(false)
     val isHost: StateFlow<Boolean> = _isHost.asStateFlow()
 
+    private val playerHandManager = PlayerHandManager()  // 添加 PlayerHandManager 实例
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -148,7 +186,8 @@ class OnlineRoomActivity : ComponentActivity() {
                     isHostFlow = isHost,
                     connectedClientsFlow = connectedClients,
                     onClientListUpdated = { newList -> _connectedClients.value = newList },
-                    onSetIsHost = { host -> _isHost.value = host }
+                    onSetIsHost = { host -> _isHost.value = host },
+                    playerHandManager = playerHandManager
                 )
             }
         }
@@ -193,12 +232,17 @@ class OnlineRoomActivity : ComponentActivity() {
         val cardsPerPlayer = 13 // 每人13张牌
 
         // 给每个玩家发牌
-        players.forEachIndexed { index, player ->
+        val updatedPlayers = players.mapIndexed { index, player ->
             val startIndex = index * cardsPerPlayer
             val endIndex = (index + 1) * cardsPerPlayer
             val playerCards = deck.subList(startIndex, endIndex)
 
-            Log.d("OnlineRoomScreen", "给玩家 ${player.name} 发牌，牌数: ${playerCards.size}")
+            Log.d("OnlineRoomScreen", "给玩家 ${player.name}(${player.id}) 发牌，牌数: ${playerCards.size}")
+            Log.d("OnlineRoomScreen", "玩家 ${player.name} 的手牌: ${playerCards.joinToString { "${it.rank}${it.suit}" }}")
+
+            // 使用 PlayerHandManager 记录玩家手牌
+            playerHandManager.initializePlayerHand(player.id, playerCards)
+            Log.d("OnlineRoomScreen", "PlayerHandManager 记录玩家 ${player.name}(${player.id}) 的手牌: ${playerHandManager.getPlayerHand(player.id).joinToString { "${it.rank}${it.suit}" }}")
 
             val cardsJson = JSONArray().apply {
                 playerCards.forEach { card ->
@@ -227,14 +271,16 @@ class OnlineRoomActivity : ComponentActivity() {
                     isMyTurn = true,  // 主机先出牌
                     isGameReady = true,
                     isGameRunning = true,
-                    players = players  // 确保玩家列表也被更新
+                    players = players.map { if (it.id == "LOCAL_HOST_ID") it.copy(playerCards = playerCards) else it }  // 更新主机手牌
                 )
                 Log.d("OnlineRoomScreen", "主机游戏状态更新: currentPlayer=${newState.currentPlayer}, isMyTurn=${newState.isMyTurn}, players=${newState.players.size}")
                 onGameStateUpdate(newState)
+                player.copy(playerCards = playerCards)
             } else {
-                Log.d("OnlineRoomScreen", "发送手牌给客户端 ${player.name}")
+                Log.d("OnlineRoomScreen", "发送手牌给客户端 ${player.name}(${player.id})")
                 // 如果是其他玩家，发送消息
                 bluetoothServer.sendDataToClient(player.id, "DEAL_CARDS:$cardsJson")
+                player.copy(playerCards = playerCards)
             }
         }
 
@@ -253,7 +299,8 @@ fun OnlineRoomScreen(
     isHostFlow: StateFlow<Boolean>,
     connectedClientsFlow: StateFlow<List<ConnectedClient>>,
     onClientListUpdated: (List<ConnectedClient>) -> Unit,
-    onSetIsHost: (Boolean) -> Unit
+    onSetIsHost: (Boolean) -> Unit,
+    playerHandManager: PlayerHandManager
 ) {
     val playerNickname = remember { mutableStateOf("") }
     val showNicknameDialog = remember { mutableStateOf(true) }
@@ -275,16 +322,8 @@ fun OnlineRoomScreen(
     // 用于控制客户端PLAYER_JOIN消息只发送一次
     var hasJoinedRoom by remember { mutableStateOf(false) }
 
-    // 修改游戏状态为可变状态
-    var gameState by remember {
-        mutableStateOf(
-            GameState(
-                players = connectedClients,
-                isGameReady = false,
-                isGameRunning = false
-            )
-        )
-    }
+    // 游戏状态
+    var gameState by remember { mutableStateOf(GameState()) }
     var isGameStarted by remember { mutableStateOf(false) }
 
     // 添加发牌函数
@@ -305,12 +344,17 @@ fun OnlineRoomScreen(
         val cardsPerPlayer = 13 // 每人13张牌
 
         // 给每个玩家发牌
-        players.forEachIndexed { index, player ->
+        val updatedPlayers = players.mapIndexed { index, player ->
             val startIndex = index * cardsPerPlayer
             val endIndex = (index + 1) * cardsPerPlayer
             val playerCards = deck.subList(startIndex, endIndex)
 
-            Log.d("OnlineRoomScreen", "给玩家 ${player.name} 发牌，牌数: ${playerCards.size}")
+            Log.d("OnlineRoomScreen", "给玩家 ${player.name}(${player.id}) 发牌，牌数: ${playerCards.size}")
+            Log.d("OnlineRoomScreen", "玩家 ${player.name} 的手牌: ${playerCards.joinToString { "${it.rank}${it.suit}" }}")
+
+            // 使用 PlayerHandManager 记录玩家手牌
+            playerHandManager.initializePlayerHand(player.id, playerCards)
+            Log.d("OnlineRoomScreen", "PlayerHandManager 记录玩家 ${player.name}(${player.id}) 的手牌: ${playerHandManager.getPlayerHand(player.id).joinToString { "${it.rank}${it.suit}" }}")
 
             val cardsJson = JSONArray().apply {
                 playerCards.forEach { card ->
@@ -339,14 +383,16 @@ fun OnlineRoomScreen(
                     isMyTurn = true,  // 主机先出牌
                     isGameReady = true,
                     isGameRunning = true,
-                    players = players  // 确保玩家列表也被更新
+                    players = players.map { if (it.id == "LOCAL_HOST_ID") it.copy(playerCards = playerCards) else it }  // 更新主机手牌
                 )
                 Log.d("OnlineRoomScreen", "主机游戏状态更新: currentPlayer=${newState.currentPlayer}, isMyTurn=${newState.isMyTurn}, players=${newState.players.size}")
                 onGameStateUpdate(newState)
+                player.copy(playerCards = playerCards)
             } else {
-                Log.d("OnlineRoomScreen", "发送手牌给客户端 ${player.name}")
+                Log.d("OnlineRoomScreen", "发送手牌给客户端 ${player.name}(${player.id})")
                 // 如果是其他玩家，发送消息
                 bluetoothServer.sendDataToClient(player.id, "DEAL_CARDS:$cardsJson")
+                player.copy(playerCards = playerCards)
             }
         }
 
@@ -521,82 +567,6 @@ fun OnlineRoomScreen(
                                     avatar = ""
                                 )
                                 onClientListUpdated(listOf(hostClient))
-
-                                bluetoothServer.startServer(
-                                    onMessageReceived = { message, senderId -> // senderId 在这里是可用的
-                                        Log.d("OnlineRoomScreen", "主机收到来自 [$senderId] 的消息: $message")
-                                        when {
-                                            message.startsWith("PLAYER_JOIN:") -> {
-                                                val clientNickname = message.substringAfter("PLAYER_JOIN:")
-                                                val newClient = ConnectedClient(
-                                                    id = senderId,
-                                                    name = clientNickname,
-                                                    avatar = ""
-                                                )
-                                                val existingClientIndex = connectedClients.indexOfFirst { it.id == senderId }
-                                                val updatedClients = if (existingClientIndex != -1) {
-                                                    // 更新现有客户端的昵称
-                                                    connectedClients.toMutableList().apply {
-                                                        this[existingClientIndex] = newClient
-                                                    }
-                                                } else {
-                                                    // 添加新客户端
-                                                    connectedClients + newClient
-                                                }
-
-                                                // 更新列表
-                                                onClientListUpdated(updatedClients)
-                                                Toast.makeText(activityContext, "客户端 ${clientNickname} ${if (existingClientIndex != -1) "(已更新) " else ""}已加入房间", Toast.LENGTH_SHORT).show()
-
-                                                // 构建 ROOM_UPDATE 消息
-                                                val currentPlayersJsonArray = JSONArray().apply {
-                                                    updatedClients.forEach { client ->
-                                                        put(JSONObject().apply {
-                                                            put("id", client.id)
-                                                            put("name", client.name)
-                                                            put("avatar", client.avatar)
-                                                        })
-                                                    }
-                                                }
-                                                val roomUpdateMessage = JSONObject().apply {
-                                                    put("type", "ROOM_UPDATE")
-                                                    put("clients", currentPlayersJsonArray)
-                                                }.toString()
-
-                                                // 发送 ROOM_UPDATE 给所有客户端
-                                                updatedClients.filter { it.id != "LOCAL_HOST_ID" }
-                                                    .forEach { client ->
-                                                        Log.d("OnlineRoomScreen", "主机发送 ROOM_UPDATE 给客户端 [${client.id}]: $roomUpdateMessage")
-                                                        bluetoothServer.sendDataToClient(client.id, roomUpdateMessage)
-                                                    }
-                                            }
-                                            message.startsWith("PLAYER_ACTION:") -> {
-                                                Toast.makeText(activityContext, "主机处理玩家操作: $message", Toast.LENGTH_SHORT).show()
-                                                bluetoothServer.sendDataToAllClients(message)
-                                            }
-                                            else -> {
-                                                Toast.makeText(activityContext, "主机收到未知消息: $message", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    },
-                                    onClientConnected = { clientId, clientName ->
-                                        Log.d("OnlineRoomScreen", "新客户端连接 (未加入房间): $clientId, $clientName")
-                                        // 确保 Toast 在主线程显示
-                                        coroutineScope.launch(Dispatchers.Main) {
-                                            Toast.makeText(activityContext, "新客户端 ${clientName} 已连接，等待加入信息...", Toast.LENGTH_SHORT).show()
-                                        }
-                                    },
-                                    onClientDisconnected = { clientId ->
-                                        Log.d("OnlineRoomScreen", "客户端断开连接: $clientId")
-                                        val disconnectedClient = connectedClients.find { it.id == clientId }
-                                        onClientListUpdated(connectedClients.filter { it.id != clientId })
-                                        // 确保 Toast 在主线程显示
-                                        coroutineScope.launch(Dispatchers.Main) {
-                                            Toast.makeText(activityContext, "${disconnectedClient?.name ?: clientId} 已断开连接", Toast.LENGTH_SHORT).show()
-                                        }
-                                        bluetoothServer.sendDataToAllClients("PLAYER_LEFT:$clientId")
-                                    }
-                                )
                                 onSetIsHost(true)
                                 hasJoinedRoom = true // 主机也视为已加入房间
                                 Toast.makeText(activityContext, "房间已开启！", Toast.LENGTH_SHORT).show()
@@ -665,263 +635,116 @@ fun OnlineRoomScreen(
     }
 
     // 修改消息处理部分
-    LaunchedEffect(bluetoothClient) {
-        bluetoothClient.messageReceived.collectLatest { message ->
-            Log.d("OnlineRoomScreen", "收到消息: $message")
+    LaunchedEffect(Unit) {
+        bluetoothClient.messageReceived.collect { message ->
+            coroutineScope.launch {
+                Log.d("OnlineRoomScreen", "收到消息: $message")
 
-            // 分割可能合并的消息
-            val messages = message.split("\n").filter { it.isNotBlank() }
+                // 处理可能包含多个消息的情况
+                val messages = message.split("\n").filter { it.isNotBlank() }
+                if (messages.isEmpty()) {
+                    Log.d("OnlineRoomScreen", "收到空消息，跳过处理")
+                    return@launch
+                }
 
-            messages.forEach { singleMessage ->
-                when {
-                    singleMessage.startsWith("START_GAME:") -> {
-                        Log.d("OnlineRoomScreen", "收到游戏开始消息")
-                        withContext(Dispatchers.Main) {
-                            isGameStarted = true
-                            gameState = gameState.copy(
-                                isDealing = true,
-                                dealerIndex = 0,
-                                cardsDealt = 0,
-                                isGameRunning = true,
-                                isGameReady = false
-                            )
-                            Log.d("OnlineRoomScreen", "游戏状态已更新，isGameStarted: $isGameStarted")
-                            Toast.makeText(activityContext, "游戏开始！", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    singleMessage.startsWith("GAME_STARTED:") -> {
-                        val initialPlayerIndex = singleMessage.substringAfter("GAME_STARTED:").trim().toInt()
-                        withContext(Dispatchers.Main) {
-                            gameState = gameState.copy(
-                                currentPlayerIndex = initialPlayerIndex,
-                                currentPlayer = gameState.players[initialPlayerIndex].id,
-                                isMyTurn = gameState.players[initialPlayerIndex].id == bluetoothClient.connectedDevice?.address
-                            )
-                            Toast.makeText(activityContext, "游戏开始，${gameState.players[initialPlayerIndex].name} 先出牌", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    singleMessage.startsWith("TURN_CHANGED:") -> {
-                        val nextPlayerIndex = singleMessage.substringAfter("TURN_CHANGED:").trim().toInt()
-                        withContext(Dispatchers.Main) {
-                            Log.d("OnlineRoomScreen", "收到TURN_CHANGED消息: nextPlayerIndex=$nextPlayerIndex")
+                // 处理每个消息
+                messages.forEach { singleMessage ->
+                    try {
+                        when {
+                            singleMessage.startsWith("UPDATE_HAND:") -> {
+                                Log.d("OnlineRoomScreen", "处理 UPDATE_HAND 消息: $singleMessage")
+                                val handJson = singleMessage.substringAfter("UPDATE_HAND:")
+                                try {
+                                    Log.d("OnlineRoomScreen", "开始解析 UPDATE_HAND 消息: $handJson")
+                                    val cardsJsonArray = JSONArray(handJson)
+                                    val updatedCards = mutableListOf<Card>()
 
-                            // 简化判断逻辑：直接根据玩家索引判断
-                            val isMyTurn = if (isHost) {
-                                nextPlayerIndex == 0  // 主机永远是索引0
-                            } else {
-                                nextPlayerIndex == 1  // 客户端永远是索引1
-                            }
+                                    Log.d("OnlineRoomScreen", "解析卡牌数组，长度: ${cardsJsonArray.length()}")
+                                    for (i in 0 until cardsJsonArray.length()) {
+                                        val cardObj = cardsJsonArray.getJSONObject(i)
+                                        val suitStr = cardObj.getString("suit").lowercase()
+                                        val valueStr = cardObj.getString("value")
 
-                            val nextPlayer = gameState.players.getOrNull(nextPlayerIndex)
-                            if (nextPlayer != null) {
-                                Log.d("OnlineRoomScreen", "下一个玩家: ${nextPlayer.name}, isMyTurn=$isMyTurn, isHost=$isHost")
+                                        Log.d("OnlineRoomScreen", "解析卡牌: suit=$suitStr, value=$valueStr")
 
-                                // 更新游戏状态
-                                val newState = gameState.copy(
-                                    currentPlayerIndex = nextPlayerIndex,
-                                    currentPlayer = nextPlayer.id,
-                                    isMyTurn = true
-                                )
-                                Log.d("OnlineRoomScreen", "更新游戏状态: currentPlayer=${newState.currentPlayer}, isMyTurn=${newState.isMyTurn}")
-                                gameState = newState
+                                        val suit = when (suitStr) {
+                                            "hearts" -> Suit.HEARTS
+                                            "spades" -> Suit.SPADES
+                                            "diamonds" -> Suit.DIAMONDS
+                                            "clubs" -> Suit.CLUBS
+                                            else -> throw IllegalArgumentException("Invalid suit: $suitStr")
+                                        }
 
-                                Toast.makeText(activityContext, "轮到 ${nextPlayer.name} 出牌", Toast.LENGTH_SHORT).show()
-                            } else {
-                                Log.e("OnlineRoomScreen", "无效的玩家索引: $nextPlayerIndex")
-                            }
-                        }
-                    }
-                    singleMessage.startsWith("CARD_PLAYED:") -> {
-                        val parts = singleMessage.substringAfter("CARD_PLAYED:").split(":", limit = 2)
-                        if (parts.size == 2) {
-                            val playerName = parts[0]
-                            val cardsJson = parts[1]
-                            try {
-                                val cards = JSONArray(cardsJson)
-                                val playedCards = mutableListOf<Card>()
-                                for (i in 0 until cards.length()) {
-                                    val cardObj = cards.getJSONObject(i)
-                                    val suit = when (cardObj.getString("suit").lowercase()) {
-                                        "hearts" -> Suit.HEARTS
-                                        "spades" -> Suit.SPADES
-                                        "diamonds" -> Suit.DIAMONDS
-                                        "clubs" -> Suit.CLUBS
-                                        else -> throw IllegalArgumentException("Invalid suit")
-                                    }
-                                    val rank = when (cardObj.getString("value")) {
-                                        "A" -> Rank.ACE
-                                        "J" -> Rank.JACK
-                                        "Q" -> Rank.QUEEN
-                                        "K" -> Rank.KING
-                                        else -> Rank.values().find { it.value == cardObj.getString("value").toInt() }
-                                            ?: throw IllegalArgumentException("Invalid rank")
-                                    }
-                                    playedCards.add(Card(suit, rank))
-                                }
-                                withContext(Dispatchers.Main) {
-                                    // 更新最后出牌信息
-                                    gameState = gameState.copy(
-                                        lastPlayedCards = playedCards,
-                                        lastPlayedBy = playerName
-                                    )
+                                        val rank = when (valueStr) {
+                                            "A" -> Rank.ACE
+                                            "J" -> Rank.JACK
+                                            "Q" -> Rank.QUEEN
+                                            "K" -> Rank.KING
+                                            else -> {
+                                                val numericValue = valueStr.toIntOrNull()
+                                                if (numericValue != null) {
+                                                    Rank.values().find { it.value == numericValue }
+                                                        ?: throw IllegalArgumentException("Invalid rank value: $numericValue")
+                                                } else {
+                                                    throw IllegalArgumentException("Invalid rank format: $valueStr")
+                                                }
+                                            }
+                                        }
 
-                                    // 如果是本地玩家出的牌，从手牌中移除
-                                    if (playerName == gameState.players.first { it.id == "LOCAL_HOST_ID" }.name) {
-                                        val newPlayerCards = gameState.playerCards.filter { card -> !playedCards.contains(card) }
-                                        gameState = gameState.copy(playerCards = newPlayerCards)
-                                    } else if (playerName == gameState.players.first { it.id == bluetoothClient.connectedDevice?.address }.name) {
-                                        // 如果是当前客户端出的牌，从手牌中移除
-                                        val newPlayerCards = gameState.playerCards.filter { card -> !playedCards.contains(card) }
-                                        gameState = gameState.copy(playerCards = newPlayerCards)
+                                        val card = Card(suit, rank)
+                                        updatedCards.add(card)
+                                        Log.d("OnlineRoomScreen", "成功添加卡牌: ${card.rank}${card.suit}")
                                     }
 
-                                    Toast.makeText(activityContext, "$playerName 出牌了", Toast.LENGTH_SHORT).show()
-                                }
-                            } catch (e: Exception) {
-                                Log.e("OnlineRoomScreen", "解析出牌数据失败: ${e.message}", e)
-                                Toast.makeText(activityContext, "接收出牌数据失败", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    }
-                    singleMessage.startsWith("PLAYER_PASSED:") -> {
-                        val playerName = singleMessage.substringAfter("PLAYER_PASSED:")
-                        withContext(Dispatchers.Main) {
-                            Toast.makeText(activityContext, "$playerName 不出", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    singleMessage.startsWith("PLAYER_LEFT:") -> {
-                        val clientId = singleMessage.substringAfter("PLAYER_LEFT:")
-                        val disconnectedClient = connectedClients.find { it.id == clientId }
-                        onClientListUpdated(connectedClients.filter { it.id != clientId })
-                        Toast.makeText(activityContext, "${disconnectedClient?.name ?: clientId} 已离开房间", Toast.LENGTH_SHORT).show()
-                    }
-                    singleMessage.startsWith("ROOM_UPDATE:") -> {
-                        val jsonString = singleMessage.substringAfter("ROOM_UPDATE:")
-                        Log.d("OnlineRoomScreen", "客户端收到 ROOM_UPDATE 原始 JSON 字符串: $jsonString")
-                        try {
-                            val jsonObject = JSONObject(jsonString)
-                            val clientsArray = jsonObject.getJSONArray("clients")
-                            Log.d("OnlineRoomScreen", "客户端 ROOM_UPDATE 解析到 clients 数组长度: ${clientsArray.length()}")
-                            val newClients = mutableListOf<ConnectedClient>()
-                            for (i in 0 until clientsArray.length()) {
-                                val clientObj = clientsArray.getJSONObject(i)
-                                newClients.add(
-                                    ConnectedClient(
-                                        id = clientObj.getString("id"),
-                                        name = clientObj.getString("name"),
-                                        avatar = clientObj.getString("avatar")
-                                    )
-                                )
-                            }
-                            Log.d("OnlineRoomScreen", "客户端 ROOM_UPDATE 解析到新客户端列表: ${newClients.joinToString()}")
-                            // 强制更新列表
-                            onClientListUpdated(newClients)
-                            // 更新游戏状态中的玩家列表
-                            withContext(Dispatchers.Main) {
-                                gameState = gameState.copy(players = newClients)
-                                Log.d("OnlineRoomScreen", "客户端更新后的连接列表: ${connectedClients.joinToString()}")
-                                Log.d("OnlineRoomScreen", "客户端更新后列表大小: ${connectedClients.size}")
-                                connectedClients.forEachIndexed { index, client ->
-                                    Log.d("OnlineRoomScreen", "客户端更新后列表[${index}]: id=${client.id}, name=${client.name}")
-                                }
-                                Toast.makeText(activityContext, "房间状态已更新", Toast.LENGTH_SHORT).show()
-                            }
-                        } catch (e: Exception) {
-                            Log.e("OnlineRoomScreen", "解析 ROOM_UPDATE 消息失败: ${e.message}", e)
-                            Log.e("OnlineRoomScreen", "错误详情: ${e.stackTraceToString()}")
-                        }
-                    }
-                    singleMessage.startsWith("{\"type\":\"ROOM_UPDATE\"") -> {
-                        // 处理直接发送的 JSON 消息
-                        Log.d("OnlineRoomScreen", "客户端收到 ROOM_UPDATE JSON 消息")
-                        try {
-                            val jsonObject = JSONObject(singleMessage)
-                            val clientsArray = jsonObject.getJSONArray("clients")
-                            Log.d("OnlineRoomScreen", "客户端 ROOM_UPDATE 解析到 clients 数组长度: ${clientsArray.length()}")
-                            val newClients = mutableListOf<ConnectedClient>()
-                            for (i in 0 until clientsArray.length()) {
-                                val clientObj = clientsArray.getJSONObject(i)
-                                newClients.add(
-                                    ConnectedClient(
-                                        id = clientObj.getString("id"),
-                                        name = clientObj.getString("name"),
-                                        avatar = clientObj.getString("avatar")
-                                    )
-                                )
-                            }
-                            Log.d("OnlineRoomScreen", "客户端 ROOM_UPDATE 解析到新客户端列表: ${newClients.joinToString()}")
-                            // 强制更新列表
-                            onClientListUpdated(newClients)
-                            // 更新游戏状态中的玩家列表
-                            withContext(Dispatchers.Main) {
-                                gameState = gameState.copy(players = newClients)
-                                Log.d("OnlineRoomScreen", "客户端更新后的连接列表: ${connectedClients.joinToString()}")
-                                Log.d("OnlineRoomScreen", "客户端更新后列表大小: ${connectedClients.size}")
-                                connectedClients.forEachIndexed { index, client ->
-                                    Log.d("OnlineRoomScreen", "客户端更新后列表[${index}]: id=${client.id}, name=${client.name}")
-                                }
-                                Toast.makeText(activityContext, "房间状态已更新", Toast.LENGTH_SHORT).show()
-                            }
-                        } catch (e: Exception) {
-                            Log.e("OnlineRoomScreen", "解析 ROOM_UPDATE 消息失败: ${e.message}", e)
-                            Log.e("OnlineRoomScreen", "错误详情: ${e.stackTraceToString()}")
-                        }
-                    }
-                    singleMessage.startsWith("DEAL_CARDS:") -> {
-                        Log.d("OnlineRoomScreen", "收到发牌消息")
-                        val cardsJson = singleMessage.substringAfter("DEAL_CARDS:")
-                        try {
-                            Log.d("OnlineRoomScreen", "开始解析手牌数据，原始JSON: $cardsJson")
-                            val cards = JSONArray(cardsJson)
-                            val newCards = mutableListOf<Card>()
-                            Log.d("OnlineRoomScreen", "开始解析手牌数据，JSON长度: ${cards.length()}")
-                            for (i in 0 until cards.length()) {
-                                val cardObj = cards.getJSONObject(i)
-                                val suitStr = cardObj.getString("suit").lowercase()
-                                val valueStr = cardObj.getString("value")
-                                Log.d("OnlineRoomScreen", "解析第 ${i + 1} 张牌: suit=$suitStr, value=$valueStr")
+                                    // 更新本地玩家手牌
+                                    val clientId = bluetoothClient.getClientId()
+                                    Log.d("OnlineRoomScreen", "更新玩家 [$clientId] 手牌，新牌数: ${updatedCards.size}")
+                                    Log.d("OnlineRoomScreen", "新牌列表: ${updatedCards.joinToString { "${it.rank}${it.suit}" }}")
 
-                                val suit = when (suitStr) {
-                                    "hearts" -> Suit.HEARTS
-                                    "spades" -> Suit.SPADES
-                                    "diamonds" -> Suit.DIAMONDS
-                                    "clubs" -> Suit.CLUBS
-                                    else -> throw IllegalArgumentException("Invalid suit: $suitStr")
+                                    // 使用 initializePlayerHand 完全替换手牌
+                                    playerHandManager.initializePlayerHand(clientId, updatedCards)
+
+                                    // 更新游戏状态中的手牌
+                                    val newState = gameState.copy(
+                                        playerCards = updatedCards,
+                                        players = gameState.players.map { player ->
+                                            if (player.id == clientId) {
+                                                player.copy(playerCards = updatedCards)
+                                            } else {
+                                                player
+                                            }
+                                        }
+                                    )
+                                    gameState = newState
+                                    Log.d("OnlineRoomScreen", "更新手牌成功: ${updatedCards.size} 张")
+                                } catch (e: Exception) {
+                                    Log.e("OnlineRoomScreen", "解析 UPDATE_HAND 消息失败: ${e.message}", e)
+                                    Log.e("OnlineRoomScreen", "错误详情: ${e.stackTraceToString()}")
+                                    Toast.makeText(activityContext, "更新手牌失败: ${e.message}", Toast.LENGTH_SHORT).show()
                                 }
-                                val rank = when (valueStr) {
-                                    "A" -> Rank.ACE
-                                    "J" -> Rank.JACK
-                                    "Q" -> Rank.QUEEN
-                                    "K" -> Rank.KING
-                                    else -> Rank.values().find { it.value == valueStr.toInt() }
-                                        ?: throw IllegalArgumentException("Invalid rank: $valueStr")
+                            }
+                            singleMessage.startsWith("TURN_CHANGED:") -> {
+                                Log.d("OnlineRoomScreen", "处理 TURN_CHANGED 消息: $singleMessage")
+                                try {
+                                    val nextPlayerIndex = singleMessage.substringAfter("TURN_CHANGED:").toInt()
+                                    val newState = gameState.copy(
+                                        currentPlayerIndex = nextPlayerIndex,
+                                        currentPlayer = gameState.players.getOrNull(nextPlayerIndex)?.id ?: "",
+                                        isMyTurn = if (isHost) nextPlayerIndex == 0 else nextPlayerIndex == 1
+                                    )
+                                    gameState = newState
+                                    Log.d("OnlineRoomScreen", "回合变更: 下一个玩家索引=$nextPlayerIndex, 是否我的回合=${newState.isMyTurn}")
+                                } catch (e: Exception) {
+                                    Log.e("OnlineRoomScreen", "处理回合变更消息失败: ${e.message}", e)
                                 }
-                                newCards.add(Card(suit, rank))
-                                Log.d("OnlineRoomScreen", "成功解析第 ${i + 1} 张牌: ${suit}${rank}")
                             }
-                            Log.d("OnlineRoomScreen", "更新客户端手牌，牌数: ${newCards.size}")
-                            withContext(Dispatchers.Main) {
-                                gameState = gameState.copy(
-                                    playerCards = newCards,
-                                    isDealing = false,
-                                    isGameReady = true
-                                )
-                                Log.d("OnlineRoomScreen", "客户端手牌更新完成，当前手牌: ${newCards.joinToString { "${it.suit}${it.rank}" }}")
-                                Toast.makeText(activityContext, "收到手牌 ${newCards.size} 张", Toast.LENGTH_SHORT).show()
+                            else -> {
+                                Log.d("OnlineRoomScreen", "收到未知消息: $singleMessage")
                             }
-                        } catch (e: Exception) {
-                            Log.e("OnlineRoomScreen", "解析手牌数据失败: ${e.message}", e)
-                            Log.e("OnlineRoomScreen", "错误详情: ${e.stackTraceToString()}")
-                            Toast.makeText(activityContext, "接收手牌数据失败: ${e.message}", Toast.LENGTH_SHORT).show()
                         }
-                    }
-                    message.startsWith("PLAY_CARDS:") -> {
-                        // 处理 PLAY_CARDS 消息
-                        // 这个消息应该由服务器处理，客户端不应该收到这个消息
-                        Log.d("OnlineRoomScreen", "收到 PLAY_CARDS 消息")
-                    }
-                    else -> {
-                        Log.d("OnlineRoomScreen", "收到未知消息: $singleMessage")
+                    } catch (e: Exception) {
+                        Log.e("OnlineRoomScreen", "处理消息失败: ${e.message}", e)
+                        Toast.makeText(activityContext, "处理消息失败: ${e.message}", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -945,19 +768,20 @@ fun OnlineRoomScreen(
     LaunchedEffect(bluetoothServer) {
         bluetoothServer.startServer(
             onMessageReceived = { message, senderId ->
-                Log.d("OnlineRoomScreen", "主机收到来自 [$senderId] 的消息: $message")
+                val trimmedMsg = message.trim()
+                Log.d("OnlineRoomScreen", "主机收到来自 [$senderId] 的消息: $trimmedMsg")
+                Log.d("OnlineRoomScreen", "消息长度: ${trimmedMsg.length}, 消息前缀: ${trimmedMsg.take(10)}")
+                Log.d("OnlineRoomScreen", "开始处理消息，类型: ${if (trimmedMsg.startsWith("PLAY_CARDS:")) "PLAY_CARDS" else "其他"}")
+
                 when {
-                    message.startsWith("PLAY_CARDS:") -> {
+                    trimmedMsg.startsWith("PLAY_CARDS:") -> {
                         Log.d("OnlineRoomScreen", "开始处理 PLAY_CARDS 消息")
-                        val cardsJson = message.substringAfter("PLAY_CARDS:")
+                        val cardsJson = trimmedMsg.substringAfter("PLAY_CARDS:")
                         try {
-                            // 从已连接的客户端列表中查找发送者
                             Log.d("OnlineRoomScreen", "当前连接的客户端列表: ${connectedClients.joinToString { "${it.name}(${it.id})" }}")
                             val sender = connectedClients.find { it.id == senderId }
                             val clientName = sender?.name ?: "未知玩家"
                             Log.d("OnlineRoomScreen", "找到出牌者: $clientName (ID: $senderId)")
-                            
-                            // 解析出牌数据
                             val cards = JSONArray(cardsJson)
                             val playedCards = mutableListOf<Card>()
                             for (i in 0 until cards.length()) {
@@ -981,59 +805,109 @@ fun OnlineRoomScreen(
                             }
                             Log.d("OnlineRoomScreen", "解析出牌数据: ${playedCards.joinToString { "${it.rank}${it.suit}" }}")
 
-                            // 计算下一个玩家
+                            // 更新发送者的手牌
+                            val updatedClients = connectedClients.map { client ->
+                                if (client.id == senderId) {
+                                    // 获取发送者原有的手牌
+                                    val originalHand = playerHandManager.getPlayerHand(senderId)
+                                    Log.d("OnlineRoomScreen", "发送者 [$senderId] 原有手牌: ${originalHand.joinToString { "${it.rank}${it.suit}" }}")
+                                    Log.d("OnlineRoomScreen", "发送者 [$senderId] 原有手牌数量: ${originalHand.size}")
+                                    // 从发送者的手牌中移除已出的牌
+                                    val remainingCards = originalHand.filter { card -> !playedCards.contains(card) }
+                                    Log.d("OnlineRoomScreen", "更新客户端 ${client.name} 的手牌: 原有 ${originalHand.size} 张，移除 ${playedCards.size} 张，剩余 ${remainingCards.size} 张")
+                                    client.copy(playerCards = remainingCards)
+                                } else {
+                                    client
+                                }
+                            }
+
                             val nextPlayerIndex = (gameState.currentPlayerIndex + 1) % gameState.players.size
                             Log.d("OnlineRoomScreen", "下一个玩家索引: $nextPlayerIndex, 当前玩家列表: ${gameState.players.joinToString { "${it.name}(${it.id})" }}")
 
-                            // 更新游戏状态
                             coroutineScope.launch(Dispatchers.Main) {
-                                Log.d("OnlineRoomScreen", "开始更新游戏状态")
-                                val newState = gameState.copy(
-                                    lastPlayedCards = playedCards,
-                                    lastPlayedBy = clientName,
-                                    currentPlayerIndex = nextPlayerIndex,
-                                    currentPlayer = gameState.players[nextPlayerIndex].id,
-                                    isMyTurn = nextPlayerIndex == 0,  // 主机永远是索引0
-                                    players = connectedClients  // 确保玩家列表是最新的
-                                )
+                                try {
+                                    Log.d("OnlineRoomScreen", "开始更新游戏状态")
+                                    val newState = GameState(
+                                        playerCards = gameState.playerCards,
+                                        lastPlayedCards = playedCards,
+                                        lastPlayedBy = clientName,
+                                        currentPlayerIndex = nextPlayerIndex,
+                                        currentPlayer = gameState.players[nextPlayerIndex].id,
+                                        isMyTurn = nextPlayerIndex == 0,
+                                        players = updatedClients,  // 使用更新后的客户端列表
+                                        isDealing = gameState.isDealing,
+                                        dealerIndex = gameState.dealerIndex,
+                                        cardsDealt = gameState.cardsDealt,
+                                        isGameReady = gameState.isGameReady,
+                                        isGameRunning = gameState.isGameRunning
+                                    )
+                                    Log.d("OnlineRoomScreen", "更新前状态: lastPlayedCards=${gameState.lastPlayedCards.size}, lastPlayedBy=${gameState.lastPlayedBy}")
+                                    gameState = newState
+                                    Log.d("OnlineRoomScreen", "更新后状态: lastPlayedCards=${gameState.lastPlayedCards.size}, lastPlayedBy=${gameState.lastPlayedBy}")
 
-                                // 更新状态
-                                gameState = newState
-                                Log.d("OnlineRoomScreen", "主机更新游戏状态: 最后出牌=${newState.lastPlayedCards.size}, 当前玩家=${newState.currentPlayer}, lastPlayedBy=${newState.lastPlayedBy}")
+                                    // 发送更新后的手牌给出牌的客户端
+                                    val sender = updatedClients.find { it.id == senderId }
+                                    if (sender != null) {
+                                        val remainingCardsJson = JSONArray().apply {
+                                            sender.playerCards.forEach { card ->
+                                                put(JSONObject().apply {
+                                                    put("suit", card.suit.toString())
+                                                    put("value", when (card.rank) {
+                                                        Rank.ACE -> "A"
+                                                        Rank.JACK -> "J"
+                                                        Rank.QUEEN -> "Q"
+                                                        Rank.KING -> "K"
+                                                        else -> card.rank.value.toString()
+                                                    })
+                                                })
+                                            }
+                                        }.toString()
+                                        Log.d("OnlineRoomScreen", "发送更新后的手牌给客户端 ${sender.name}: $remainingCardsJson")
+                                        bluetoothServer.sendDataToClient(senderId, "UPDATE_HAND:$remainingCardsJson")
+                                    }
 
-                                // 广播出牌信息给所有客户端
-                                Log.d("OnlineRoomScreen", "广播出牌信息: CARD_PLAYED:$clientName:$cardsJson")
-                                bluetoothServer.sendDataToAllClients("CARD_PLAYED:$clientName:$cardsJson")
+                                    delay(1000)
+                                    Log.d("OnlineRoomScreen", "广播出牌信息: CARD_PLAYED:$clientName:$cardsJson")
+                                    bluetoothServer.sendDataToAllClients("CARD_PLAYED:$clientName:$cardsJson")
 
-                                // 广播回合变更消息
-                                Log.d("OnlineRoomScreen", "广播回合变更: TURN_CHANGED:$nextPlayerIndex")
-                                bluetoothServer.sendDataToAllClients("TURN_CHANGED:$nextPlayerIndex")
+                                    Log.d("OnlineRoomScreen", "广播回合变更: TURN_CHANGED:$nextPlayerIndex")
+                                    bluetoothServer.sendDataToAllClients("TURN_CHANGED:$nextPlayerIndex")
+                                    Log.d("OnlineRoomScreen", "消息处理完成")
+                                } catch (e: Exception) {
+                                    Log.e("OnlineRoomScreen", "更新游戏状态失败: ${e.message}", e)
+                                    Log.e("OnlineRoomScreen", "错误详情: ${e.stackTraceToString()}")
+                                }
                             }
                         } catch (e: Exception) {
                             Log.e("OnlineRoomScreen", "处理出牌信息失败: ${e.message}", e)
                             Log.e("OnlineRoomScreen", "错误详情: ${e.stackTraceToString()}")
                         }
                     }
-                    message.startsWith("PLAYER_JOIN:") -> {
-                        val clientNickname = message.substringAfter("PLAYER_JOIN:")
+                    trimmedMsg.startsWith("PLAYER_JOIN:") -> {
+                        val clientNickname = trimmedMsg.substringAfter("PLAYER_JOIN:")
                         val newClient = ConnectedClient(
                             id = senderId,
                             name = clientNickname,
                             avatar = ""
                         )
                         val existingClientIndex = connectedClients.indexOfFirst { it.id == senderId }
-                        if (existingClientIndex != -1) {
-                            val updatedClients = connectedClients.toMutableList()
-                            updatedClients[existingClientIndex] = newClient
-                            onClientListUpdated(updatedClients)
-                            Toast.makeText(activityContext, "客户端 ${clientNickname} (已更新) 已加入房间", Toast.LENGTH_SHORT).show()
+                        val updatedClients = if (existingClientIndex != -1) {
+                            // 更新现有客户端的昵称
+                            connectedClients.toMutableList().apply {
+                                this[existingClientIndex] = newClient
+                            }
                         } else {
-                            onClientListUpdated(connectedClients + newClient)
-                            Toast.makeText(activityContext, "客户端 ${clientNickname} 已加入房间", Toast.LENGTH_SHORT).show()
+                            // 添加新客户端
+                            connectedClients + newClient
                         }
 
+                        // 更新列表
+                        onClientListUpdated(updatedClients)
+                        Toast.makeText(activityContext, "客户端 ${clientNickname} ${if (existingClientIndex != -1) "(已更新) " else ""}已加入房间", Toast.LENGTH_SHORT).show()
+
+                        // 构建 ROOM_UPDATE 消息
                         val currentPlayersJsonArray = JSONArray().apply {
-                            connectedClients.forEach { client ->
+                            updatedClients.forEach { client ->
                                 put(JSONObject().apply {
                                     put("id", client.id)
                                     put("name", client.name)
@@ -1046,27 +920,21 @@ fun OnlineRoomScreen(
                             put("clients", currentPlayersJsonArray)
                         }.toString()
 
-                        Log.d("OnlineRoomScreen", "主机发送 ROOM_UPDATE 给客户端 [${senderId}]: $roomUpdateMessage")
-                        bluetoothServer.sendDataToClient(senderId, roomUpdateMessage)
-
-                        connectedClients.filter { it.id != senderId && it.id != "LOCAL_HOST_ID" }
+                        // 发送 ROOM_UPDATE 给所有客户端
+                        updatedClients.filter { it.id != "LOCAL_HOST_ID" }
                             .forEach { client ->
-                                Log.d("OnlineRoomScreen", "主机通知其他客户端 PLAYER_JOINED 给 [${client.id}]: $senderId,$clientNickname")
-                                bluetoothServer.sendDataToClient(client.id, "PLAYER_JOINED:$senderId,$clientNickname")
+                                Log.d("OnlineRoomScreen", "主机发送 ROOM_UPDATE 给客户端 [${client.id}]: $roomUpdateMessage")
+                                bluetoothServer.sendDataToClient(client.id, roomUpdateMessage)
                             }
                     }
-                    message.startsWith("PASS:") -> {
-                        // 从已连接的客户端列表中查找发送者
-                        val sender = connectedClients.find { it.id == senderId }
-                        val clientName = sender?.name ?: "未知玩家"
-                        bluetoothServer.sendDataToAllClients("PLAYER_PASSED:$clientName")
-                    }
-                    message.startsWith("PLAYER_ACTION:") -> {
-                        Toast.makeText(activityContext, "主机处理玩家操作: $message", Toast.LENGTH_SHORT).show()
-                        bluetoothServer.sendDataToAllClients(message)
+                    trimmedMsg.startsWith("PLAYER_ACTION:") -> {
+                        Toast.makeText(activityContext, "主机处理玩家操作: $trimmedMsg", Toast.LENGTH_SHORT).show()
+                        bluetoothServer.sendDataToAllClients(trimmedMsg)
                     }
                     else -> {
-                        Toast.makeText(activityContext, "主机收到未知消息: $message", Toast.LENGTH_SHORT).show()
+                        Log.d("OnlineRoomScreen", "主机收到未知消息: [$trimmedMsg]")
+                        Log.d("OnlineRoomScreen", "消息格式检查: startsWith PLAY_CARDS: ${trimmedMsg.startsWith("PLAY_CARDS:")}")
+                        Toast.makeText(activityContext, "主机收到未知消息: [$trimmedMsg]", Toast.LENGTH_SHORT).show()
                     }
                 }
             },
@@ -1363,7 +1231,8 @@ fun GameScreen(
     onGameStateUpdate: (GameState) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Log.d("GameScreen", "渲染游戏界面，当前手牌数: ${gameState.playerCards.size}, currentPlayer=${gameState.currentPlayer}, isMyTurn=${gameState.isMyTurn}, lastPlayedCards=${gameState.lastPlayedCards.size}, lastPlayedBy=${gameState.lastPlayedBy}")
+    Log.d("GameScreen", "开始渲染游戏界面")
+    Log.d("GameScreen", "当前状态: 手牌数=${gameState.playerCards.size}, 最后出牌=${gameState.lastPlayedCards.size}, 出牌者=${gameState.lastPlayedBy}, 当前玩家=${gameState.currentPlayer}, 是否我的回合=${gameState.isMyTurn}")
 
     val selectedCards = remember { mutableStateListOf<Card>() }
     val context = LocalContext.current
@@ -1377,6 +1246,12 @@ fun GameScreen(
         // 只要有选中的牌且轮到自己的回合就可以出牌
         canPlay = selectedCards.isNotEmpty() && gameState.isMyTurn
         Log.d("GameScreen", "更新canPlay: selectedCards=${selectedCards.size}, isMyTurn=${gameState.isMyTurn}, canPlay=$canPlay")
+    }
+
+    // 添加对 gameState 变化的监听
+    LaunchedEffect(gameState) {
+        Log.d("GameScreen", "gameState 发生变化")
+        Log.d("GameScreen", "新的状态: 手牌数=${gameState.playerCards.size}, 最后出牌=${gameState.lastPlayedCards.size}, 出牌者=${gameState.lastPlayedBy}, 当前玩家=${gameState.currentPlayer}, 是否我的回合=${gameState.isMyTurn}")
     }
 
     Box(
@@ -1440,17 +1315,20 @@ fun GameScreen(
                 }
             }
 
-            // 最后出牌信息
+            // 最后出牌信息 - 放在屏幕中间
             if (gameState.lastPlayedCards.isNotEmpty()) {
+                Log.d("GameScreen", "渲染最后出牌区域: 牌数=${gameState.lastPlayedCards.size}, 出牌者=${gameState.lastPlayedBy}")
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .weight(1f)  // 恢复为1f
                         .padding(vertical = 8.dp)
                         .background(
                             color = MaterialTheme.colorScheme.surface,
                             shape = RoundedCornerShape(8.dp)
                         )
-                        .padding(8.dp)
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1459,24 +1337,48 @@ fun GameScreen(
                         Text(
                             text = "${gameState.lastPlayedBy} 出牌",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(bottom = 8.dp)
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
                         Row(
                             horizontalArrangement = Arrangement.Center,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(180.dp)  // 设置固定高度
                         ) {
                             gameState.lastPlayedCards.forEach { card ->
+                                Log.d("GameScreen", "渲染卡牌: ${card.rank}${card.suit}")
                                 CardItem(
                                     card = card,
                                     isSelectable = false,
                                     modifier = Modifier
-                                        .size(width = 40.dp, height = 60.dp)
-                                        .padding(horizontal = 2.dp)
+                                        .size(width = 120.dp, height = 180.dp)  // 调整到更合适的尺寸
+                                        .padding(horizontal = 4.dp)
                                 )
                             }
                         }
                     }
+                }
+            } else {
+                Log.d("GameScreen", "渲染等待出牌区域")
+                // 如果没有出牌，显示一个占位区域
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(vertical = 8.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.surface,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "等待出牌",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
@@ -1494,8 +1396,6 @@ fun GameScreen(
                 }
                 Spacer(modifier = Modifier.weight(1f))
             } else {
-                Spacer(modifier = Modifier.weight(1f))
-
                 // 操作按钮
                 Row(
                     modifier = Modifier
@@ -1564,7 +1464,8 @@ fun GameScreen(
 
                                     // 发送出牌消息
                                     if (isHost) {
-                                        val playerName = gameState.players.first { it.id == "LOCAL_HOST_ID" }.name
+                                        val playerName = gameState.players.find { it.id == "LOCAL_HOST_ID" }?.name
+                                            ?: throw IllegalStateException("Host player not found")
                                         bluetoothServer?.sendDataToAllClients("CARD_PLAYED:$playerName:$cardsJson")
                                         bluetoothServer?.sendDataToAllClients("TURN_CHANGED:$nextPlayerIndex")
 
@@ -1580,7 +1481,8 @@ fun GameScreen(
                                                 lastPlayedBy = playerName,
                                                 playerCards = newPlayerCards,
                                                 currentPlayerIndex = nextPlayerIndex,
-                                                currentPlayer = gameState.players[nextPlayerIndex].id,
+                                                currentPlayer = gameState.players.getOrNull(nextPlayerIndex)?.id
+                                                    ?: throw IllegalStateException("Next player not found"),
                                                 isMyTurn = nextPlayerIndex == 0  // 主机永远是索引0
                                             )
 
